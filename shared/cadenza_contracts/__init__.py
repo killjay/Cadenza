@@ -1,0 +1,188 @@
+"""cadenza_contracts — the frozen interface layer for CADenza.
+
+Owned by the architect. Dev A (server/), Dev B (geometry/) and Dev C (web/)
+IMPORT from here and never edit these files. If you need a change, raise it —
+do not patch locally, or the three workstreams silently diverge.
+
+Everything here is one of:
+  * a wire type (pydantic, JSON-serialisable) ....... ledger.py, messages.py, patch.py
+  * an in-process type (may hold bytes) ............. geometry.py
+  * a shared enum / helper .......................... errors.py, ids.py, version.py
+  * a golden fixture used to unblock devs ........... fixtures.py
+
+Install:  uv pip install -e ../shared
+TS mirror: shared/ts/  (keep the two in lockstep — they are one contract)
+"""
+
+from cadenza_contracts.errors import CadenzaError, ErrorCode
+from cadenza_contracts.geometry import (
+    BBox,
+    BuildResult,
+    BuildStats,
+    EntityKind,
+    EntityRef,
+    ExportFormat,
+    GeometryError,
+    GeometryErrorCode,
+    GeometryService,
+    Ray,
+    SpatialHit,
+    SpatialQuery,
+)
+from cadenza_contracts.ids import (
+    new_feature_id,
+    new_message_id,
+    new_project_id,
+    new_session_id,
+)
+from cadenza_contracts.ledger import (
+    FEATURE_KINDS,
+    MAX_FEATURES,
+    SCHEMA_VERSION,
+    AIContext,
+    Assumption,
+    BoxFeature,
+    BoxParameters,
+    CylinderFeature,
+    CylinderParameters,
+    Feature,
+    HoleFeature,
+    HoleParameters,
+    Ledger,
+    Metadata,
+    Placement,
+    TargetRef,
+    Vec3,
+    empty_ledger,
+    feature_by_id,
+    feature_index,
+    ledger_json_schema,
+)
+from cadenza_contracts.messages import (
+    PROTOCOL_VERSION,
+    AgentMessage,
+    AgentPhase,
+    AgentStatus,
+    ArtifactKind,
+    BlobDescriptor,
+    BlobHeader,
+    ClientHello,
+    ClientMessage,
+    ErrorMessage,
+    GeometryFailed,
+    GeometryReady,
+    LedgerRequest,
+    LedgerUpdated,
+    Limits,
+    Ping,
+    Pong,
+    ServerMessage,
+    SessionReady,
+    SessionReset,
+    SpatialProbe,
+    SpatialResult,
+    Target,
+    UserPrompt,
+    decode_blob_frame,
+    dump_message,
+    encode_blob_frame,
+    parse_client_message,
+    parse_server_message,
+)
+from cadenza_contracts.patch import (
+    FORBIDDEN_PATHS,
+    MAX_PATCH_OPS,
+    AgentPatchOutput,
+    PatchOp,
+    PointerResolutionError,
+    apply_patch,
+    normalize_patch,
+    normalize_pointer,
+)
+from cadenza_contracts.version import CONTRACT_VERSION, compatible
+
+__all__ = [
+    "CONTRACT_VERSION",
+    "PROTOCOL_VERSION",
+    "SCHEMA_VERSION",
+    "MAX_PATCH_OPS",
+    "MAX_FEATURES",
+    "FORBIDDEN_PATHS",
+    "FEATURE_KINDS",
+    "compatible",
+    # ledger
+    "Ledger",
+    "Metadata",
+    "Feature",
+    "BoxFeature",
+    "CylinderFeature",
+    "HoleFeature",
+    "BoxParameters",
+    "CylinderParameters",
+    "HoleParameters",
+    "Placement",
+    "TargetRef",
+    "AIContext",
+    "Assumption",
+    "Vec3",
+    "empty_ledger",
+    "feature_by_id",
+    "feature_index",
+    "ledger_json_schema",
+    # patch
+    "PatchOp",
+    "AgentPatchOutput",
+    "normalize_pointer",
+    "normalize_patch",
+    "apply_patch",
+    "PointerResolutionError",
+    # geometry
+    "GeometryService",
+    "BuildResult",
+    "BuildStats",
+    "BBox",
+    "Ray",
+    "EntityKind",
+    "EntityRef",
+    "ExportFormat",
+    "SpatialQuery",
+    "SpatialHit",
+    "GeometryError",
+    "GeometryErrorCode",
+    # messages
+    "ClientMessage",
+    "ServerMessage",
+    "ClientHello",
+    "UserPrompt",
+    "SpatialProbe",
+    "LedgerRequest",
+    "SessionReset",
+    "Ping",
+    "Limits",
+    "SessionReady",
+    "AgentStatus",
+    "AgentPhase",
+    "AgentMessage",
+    "LedgerUpdated",
+    "ArtifactKind",
+    "BlobDescriptor",
+    "BlobHeader",
+    "GeometryReady",
+    "GeometryFailed",
+    "SpatialResult",
+    "ErrorMessage",
+    "Pong",
+    "Target",
+    "parse_client_message",
+    "parse_server_message",
+    "dump_message",
+    "encode_blob_frame",
+    "decode_blob_frame",
+    # errors / ids
+    "ErrorCode",
+    "CadenzaError",
+    "new_project_id",
+    "new_session_id",
+    "new_feature_id",
+    "new_message_id",
+]

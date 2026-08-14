@@ -1,0 +1,23 @@
+[project]
+name = "cadenza-geometry"
+version = "0.1.0"
+description = "CADenza geometry service: JSON ledger -> build123d B-rep -> GLB + STEP, in memory."
+requires-python = ">=3.11"
+dependencies = [
+    "build123d>=0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cadenza_geometry"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]

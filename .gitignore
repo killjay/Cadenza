@@ -1,0 +1,34 @@
+# secrets — API keys live here, never commit
+.env
+.env.*
+!.env.example
+
+# dependencies
+node_modules/
+.venv/
+venv/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# generated geometry (GLB/STEP written by local runs and smoke scripts)
+out/
+
+# local data
+*.db
+*.sqlite
+data/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

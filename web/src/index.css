@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/*
+  CADenza token layer. Carried over from draftsmith so the two apps read as one
+  product family, warmed slightly toward blue — a 3D viewport needs a cooler,
+  deeper ground than a white drawing sheet did.
+*/
+@theme {
+  --color-*: initial;
+
+  /* grounds */
+  --color-canvas: #101216;
+  --color-chrome: #14171c;
+  --color-elevated: #1c2027;
+
+  /* ink */
+  --color-ink: #eef1f5;
+  --color-ink-2: #eef1f5bd;
+  --color-ink-3: #eef1f599;
+  --color-ink-4: #eef1f55c;
+
+  /* hairlines + washes */
+  --color-hairline: #eef1f513;
+  --color-hairline-strong: #eef1f526;
+  --color-wash: #eef1f50a;
+  --color-wash-2: #eef1f511;
+
+  /* hues */
+  --color-accent: #78c2ff;
+  --color-accent-ink: #0c1219;
+  --color-green: #46b877;
+  --color-yellow: #e8b45c;
+  --color-red: #ef5a7c;
+
+  --radius-*: initial;
+  --radius-sm: 3px;
+  --radius-base: 5px;
+
+  --text-*: initial;
+  --text-9: 9px;
+  --text-9--line-height: 12px;
+  --text-10: 10px;
+  --text-10--line-height: 14px;
+  --text-11: 11px;
+  --text-11--line-height: 15px;
+  --text-12: 12px;
+  --text-12--line-height: 17px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --shadow-pop: 0 0 0 1px #eef1f513, 0 8px 28px -6px #000000cc;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-12);
+  line-height: var(--text-12--line-height);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+canvas {
+  cursor: crosshair;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-hairline-strong);
+  border-radius: 4px;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-4);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+input,
+button {
+  font: inherit;
+  color: inherit;
+}
+input {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline-offset: -1px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.85s linear infinite;
+}
