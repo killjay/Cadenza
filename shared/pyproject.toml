@@ -2,7 +2,7 @@
 name = "cadenza-contracts"
 version = "1.0.0"
 description = "CADenza shared schemas and contracts. Owned by the architect; imported by server/ and geometry/."
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.7",
     "jsonpatch>=1.33",

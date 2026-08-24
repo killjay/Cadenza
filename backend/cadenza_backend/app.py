@@ -189,7 +189,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
             # strict here would make the transport harder to exercise by hand
             # for no safety gain in a prototype.
             if session is None:
-                session = registry.get_or_create(frame.session_id)
+                session = registry.get_or_create(getattr(frame, "session_id", None))
                 await emit(
                     SessionReady(
                         session_id=session.id,

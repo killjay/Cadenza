@@ -10,12 +10,18 @@ from __future__ import annotations
 from build123d import Location
 from OCP.gp import gp_Dir, gp_Pnt
 
-from cadenza_geometry.plan import RFeature
+from cadenza_geometry.plan import BuildPlan, RFeature
 
 
-def feature_location(f: RFeature) -> Location:
-    """The feature's local frame in world space."""
-    return Location(tuple(f.origin), tuple(f.rotation_deg))
+def feature_location(f: RFeature, plan: BuildPlan | None = None) -> Location:
+    """The feature's local frame in world space. If plan is provided and the feature is relative_to another, their locations are multiplied."""
+    loc = Location(tuple(f.origin), tuple(f.rotation_deg))
+    if f.relative_to and plan:
+        parent = plan.by_id(f.relative_to)
+        if parent:
+            parent_loc = feature_location(parent, plan)
+            return parent_loc * loc
+    return loc
 
 
 def to_world(loc: Location, p: tuple[float, float, float]) -> tuple[float, float, float]:

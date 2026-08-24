@@ -173,7 +173,7 @@ def probe(
 
     if REAL_GEOMETRY:
         try:
-            hit = _service.probe_point(
+            hit = _service.probe_point_legacy(
                 ledger,
                 tuple(point),
                 normal=tuple(normal) if normal else None,
@@ -233,3 +233,14 @@ def _kind_of(ledger: Ledger, feature_id: str | None) -> str | None:
 def _name_of(ledger: Ledger, feature_id: str | None) -> str | None:
     feature = _feature(ledger, feature_id)
     return (feature.name or None) if feature else None
+
+def run_geometry_probe(ledger: Ledger, query: dict) -> dict:
+    """Passes a structured geometry probe query to the CAD engine."""
+    if not REAL_GEOMETRY:
+        return {"error": "No geometry engine available."}
+        
+    try:
+        return _service.run_probe_query(ledger, query)
+    except Exception as exc:
+        return {"error": f"Kernel failed to execute probe query: {type(exc).__name__} - {str(exc)}"}
+

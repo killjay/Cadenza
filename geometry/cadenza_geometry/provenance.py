@@ -32,7 +32,7 @@ import math
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
-from build123d import Face, GeomType
+from build123d import Face, GeomType, Location, Vector, Axis
 
 from cadenza_geometry.frames import dir_to_world, feature_location, to_world
 from cadenza_geometry.plan import BuildPlan, RFeature
@@ -92,6 +92,39 @@ class CylinderSpec:
 
 
 @dataclass(frozen=True)
+class ConeSpec:
+    label: str
+    axis_point: tuple[float, float, float]
+    axis_dir: tuple[float, float, float]
+    bottom_radius: float
+    top_radius: float
+    height: float
+    material_inside: bool
+    kind: Literal["cone"] = "cone"
+
+
+@dataclass(frozen=True)
+class SphereSpec:
+    label: str
+    center: tuple[float, float, float]
+    radius: float
+    material_inside: bool
+    kind: Literal["sphere"] = "sphere"
+
+
+@dataclass(frozen=True)
+class TorusSpec:
+    label: str
+    center: tuple[float, float, float]
+    axis_dir: tuple[float, float, float]
+    major_radius: float
+    minor_radius: float
+    material_inside: bool
+    kind: Literal["torus"] = "torus"
+
+
+
+@dataclass(frozen=True)
 class FlankSpec:
     """The tooth flanks of a gear — the one surface here that is not analytic.
 
@@ -119,10 +152,35 @@ class FlankSpec:
     kind: Literal["flank"] = "flank"
 
 
-Spec = PlaneSpec | CylinderSpec | FlankSpec
+Spec = PlaneSpec | CylinderSpec | FlankSpec | ConeSpec | SphereSpec | TorusSpec
 
 
-def surfaces_for(f: RFeature) -> list[Spec]:
+def _transform_spec(s: Spec, step_loc: Location) -> Spec:
+    def P(pt):
+        v = step_loc * Vector(pt)
+        return (v.X, v.Y, v.Z)
+
+    def D(d):
+        # direction transforms only by rotation
+        v = step_loc.orientation * Vector(d)
+        return (v.X, v.Y, v.Z)
+
+    if isinstance(s, PlaneSpec):
+        return PlaneSpec(s.label, P(s.point), D(s.normal))
+    elif isinstance(s, CylinderSpec):
+        return CylinderSpec(s.label, P(s.axis_point), D(s.axis_dir), s.radius, s.material_inside)
+    elif isinstance(s, ConeSpec):
+        return ConeSpec(s.label, P(s.axis_point), D(s.axis_dir), s.bottom_radius, s.top_radius, s.height, s.material_inside)
+    elif isinstance(s, FlankSpec):
+        return FlankSpec(s.label, P(s.axis_point), D(s.axis_dir), s.inner_radius, s.outer_radius, s.reference_radius, s.height)
+    elif isinstance(s, SphereSpec):
+        return SphereSpec(s.label, P(s.center), s.radius, s.material_inside)
+    elif isinstance(s, TorusSpec):
+        return TorusSpec(s.label, P(s.center), D(s.axis_dir), s.major_radius, s.minor_radius, s.material_inside)
+    return s
+
+
+def surfaces_for(f: RFeature, plan: BuildPlan | None = None) -> list[Spec]:
     """The surfaces this feature is capable of contributing to the final solid.
 
     Declared in the feature's local frame, returned in world space. A surface
@@ -130,7 +188,7 @@ def surfaces_for(f: RFeature) -> list[Spec]:
     entirely swallowed by a later cut. Declaring is cheap; only the ones that
     match a real face are ever reported.
     """
-    loc = feature_location(f)
+    loc = feature_location(f, plan)
     P = lambda p: to_world(loc, p)  # noqa: E731
     D = lambda d: dir_to_world(loc, d)  # noqa: E731
     out: list[Spec] = []
@@ -157,6 +215,16 @@ def surfaces_for(f: RFeature) -> list[Spec]:
             PlaneSpec("bottom_face", P((0, 0, 0)), D((0, 0, -1))),
             CylinderSpec("lateral_face", P((0, 0, 0)), D((0, 0, 1)), r, material_inside=True),
         ]
+
+    elif f.kind == "cone":
+        rb, rt, height = f.p["bottom_diameter"] / 2, f.p["top_diameter"] / 2, f.p["height"]
+        solid_side = f.operation == "add"
+        out += [
+            PlaneSpec("top_face", P((0, 0, height)), D((0, 0, 1 if solid_side else -1))),
+            PlaneSpec("bottom_face", P((0, 0, 0)), D((0, 0, -1 if solid_side else 1))),
+            ConeSpec("lateral_face", P((0, 0, 0)), D((0, 0, 1)), rb, rt, height, material_inside=solid_side),
+        ]
+
 
     elif f.kind == "gear":
         assert f.gear is not None  # plan.py resolves this for every gear
@@ -189,9 +257,70 @@ def surfaces_for(f: RFeature) -> list[Spec]:
         r = f.p["diameter"] / 2
         out.append(CylinderSpec("bore", P((0, 0, 0)), D((0, 0, 1)), r, material_inside=False))
         if not f.through and f.depth is not None:
-            # The floor of a blind hole. Material is ABOVE it, so the outward
-            # normal points down (-Z of the feature frame).
-            out.append(PlaneSpec("hole_bottom", P((0, 0, -f.depth)), D((0, 0, -1))))
+            # The floor of a blind hole. Material is BELOW it, so the outward
+            # normal points up (+Z of the feature frame).
+            out.append(PlaneSpec("hole_bottom", P((0, 0, f.depth)), D((0, 0, 1))))
+
+    elif f.kind == "sketch":
+        height = f.p["height"]
+        solid_side = f.operation == "add"
+        # We attribute top and bottom planes. Lateral faces with arbitrary draft angles 
+        # are left unattributed for now to avoid complex N-gon intersection edge-cases.
+        out += [
+            PlaneSpec("top_face", P((0, 0, height)), D((0, 0, 1 if solid_side else -1))),
+            PlaneSpec("bottom_face", P((0, 0, 0)), D((0, 0, -1 if solid_side else 1))),
+        ]
+
+    elif f.kind == "revolve":
+        solid_side = f.operation == "add"
+        verts = f.p.get("vertices", [])
+        if verts:
+            ys = [v[1] for v in verts]
+            zmin = min(ys)
+            zmax = max(ys)
+            out += [
+                PlaneSpec("top_face", P((0, 0, zmax)), D((0, 0, 1 if solid_side else -1))),
+                PlaneSpec("bottom_face", P((0, 0, zmin)), D((0, 0, -1 if solid_side else 1))),
+            ]
+
+
+    elif f.kind == "sphere":
+        r = f.p["diameter"] / 2
+        solid_side = f.operation == "add"
+        out.append(SphereSpec("surface", P((0, 0, 0)), r, material_inside=solid_side))
+
+    elif f.kind == "torus":
+        rmaj, rmin = f.p["major_diameter"] / 2, f.p["minor_diameter"] / 2
+        solid_side = f.operation == "add"
+        out.append(TorusSpec("surface", P((0, 0, 0)), D((0, 0, 1)), rmaj, rmin, material_inside=solid_side))
+
+    elif f.kind == "linear_pattern" and plan:
+        target_f = plan.by_id(f.p["target"])
+        if target_f:
+            base_specs = surfaces_for(target_f, plan)
+            count, count_2 = f.p["count"], f.p.get("count_2", 1)
+            spacing, spacing_2 = f.p["spacing"], f.p.get("spacing_2", 0.0)
+            w_axis = Vector(dir_to_world(loc, f.p["axis"]))
+            w_axis2 = Vector(dir_to_world(loc, f.p.get("axis_2", (0.0, 1.0, 0.0))))
+            for i in range(count):
+                for j in range(count_2):
+                    if i == 0 and j == 0:
+                        continue
+                    step_loc = Location(w_axis * spacing * i + w_axis2 * spacing_2 * j)
+                    out.extend(_transform_spec(s, step_loc) for s in base_specs)
+                
+    elif f.kind == "circular_pattern" and plan:
+        target_f = plan.by_id(f.p["target"])
+        if target_f:
+            base_specs = surfaces_for(target_f, plan)
+            count = f.p["count"]
+            axis_p0 = to_world(loc, (0, 0, 0))
+            axis_dir = dir_to_world(loc, (0, 0, 1))
+            rot_axis = Axis(axis_p0, axis_dir)
+            step = f.p["sweep_angle"] / count
+            for i in range(1, count):
+                step_loc = Location(rot_axis, step * i)
+                out.extend(_transform_spec(s, step_loc) for s in base_specs)
 
     return out
 
@@ -207,6 +336,7 @@ class FaceProbe:
     axis_point: tuple[float, float, float] | None = None
     axis_dir: tuple[float, float, float] | None = None
     radius: float | None = None
+    radii: tuple[float, float] | None = None
 
 
 def probe_face(face: Face, index: int) -> FaceProbe:
@@ -230,6 +360,23 @@ def probe_face(face: Face, index: int) -> FaceProbe:
         # A cylindrical patch's centroid lies ON the surface, so a normal there
         # is meaningful and its sign tells us which side the material is on.
         return FaceProbe(index, "cylinder", sample, normal, ap, ad, float(face.radius))
+
+    if gt == GeomType.CONE:
+        ax = face.axis_of_rotation
+        ap = (ax.position.X, ax.position.Y, ax.position.Z)
+        ad = (ax.direction.X, ax.direction.Y, ax.direction.Z)
+        return FaceProbe(index, "cone", sample, normal, ap, ad, None)
+
+    if gt == GeomType.SPHERE:
+        c = face.location.position
+        ap = (c.X, c.Y, c.Z)
+        return FaceProbe(index, "sphere", sample, normal, axis_point=ap, radius=float(face.radius))
+
+    if gt == GeomType.TORUS:
+        ax = face.axis_of_rotation
+        ap = (ax.position.X, ax.position.Y, ax.position.Z)
+        ad = (ax.direction.X, ax.direction.Y, ax.direction.Z)
+        return FaceProbe(index, "torus", sample, normal, axis_point=ap, axis_dir=ad, radii=face.radii)
 
     if gt == GeomType.PLANE:
         return FaceProbe(index, "plane", sample, normal)
@@ -281,6 +428,29 @@ def _cylinder_score(fp: FaceProbe, s: CylinderSpec) -> float | None:
     return axis_off + abs(fp.radius - s.radius)
 
 
+def _cone_score(fp: FaceProbe, s: ConeSpec) -> float | None:
+    if fp.geom != "cone" or fp.axis_dir is None:
+        return None
+    if 1.0 - abs(_dot(_unit(fp.axis_dir), _unit(s.axis_dir))) > ANG_TOL:
+        return None
+    delta = _sub(fp.axis_point or (0, 0, 0), s.axis_point)
+    along = _dot(delta, _unit(s.axis_dir))
+    perp = _sub(delta, tuple(along * c for c in _unit(s.axis_dir)))
+    axis_off = _norm(perp)
+    if axis_off > DIST_TOL:
+        return None
+    # Material side test
+    radial = _sub(fp.sample, s.axis_point)
+    radial = _sub(radial, tuple(_dot(radial, _unit(s.axis_dir)) * c for c in _unit(s.axis_dir)))
+    if _norm(radial) > 1e-9:
+        agree = _dot(_unit(radial), _unit(fp.normal))
+        if s.material_inside and agree < 0.1:
+            return None
+        if not s.material_inside and agree > -0.1:
+            return None
+    return axis_off
+
+
 def _flank_score(fp: FaceProbe, s: FlankSpec) -> float | None:
     axis = _unit(s.axis_dir)
     # Top and bottom faces run across the axis; the teeth run along it.
@@ -302,6 +472,45 @@ def _flank_score(fp: FaceProbe, s: FlankSpec) -> float | None:
     return abs(radial - s.reference_radius)
 
 
+def _sphere_score(fp: FaceProbe, s: SphereSpec) -> float | None:
+    if fp.geom != "sphere" or fp.radius is None or fp.axis_point is None:
+        return None
+    if abs(fp.radius - s.radius) > RADIUS_TOL:
+        return None
+    center_off = _norm(_sub(fp.axis_point, s.center))
+    if center_off > DIST_TOL:
+        return None
+    
+    radial = _sub(fp.sample, s.center)
+    if _norm(radial) > 1e-9:
+        agree = _dot(_unit(radial), _unit(fp.normal))
+        if s.material_inside and agree < 0.5:
+            return None
+        if not s.material_inside and agree > -0.5:
+            return None
+    return center_off + abs(fp.radius - s.radius)
+
+
+def _torus_score(fp: FaceProbe, s: TorusSpec) -> float | None:
+    if fp.geom != "torus" or fp.radii is None or fp.axis_dir is None:
+        return None
+    if abs(fp.radii[0] - s.major_radius) > RADIUS_TOL or abs(fp.radii[1] - s.minor_radius) > RADIUS_TOL:
+        return None
+    if 1.0 - abs(_dot(_unit(fp.axis_dir), _unit(s.axis_dir))) > ANG_TOL:
+        return None
+        
+    delta = _sub(fp.axis_point or (0, 0, 0), s.center)
+    along = _dot(delta, _unit(s.axis_dir))
+    perp = _sub(delta, tuple(along * c for c in _unit(s.axis_dir)))
+    axis_off = _norm(perp)
+    if axis_off > DIST_TOL:
+        return None
+        
+    # Torus normal calculation is slightly more complex, skip exact material inside check for Torus 
+    # and just score purely based on radius matching and axis matching for now.
+    return axis_off + abs(fp.radii[0] - s.major_radius) + abs(fp.radii[1] - s.minor_radius)
+
+
 def attribute(
     plan: BuildPlan, faces: Iterable[Face]
 ) -> tuple[dict[int, tuple[RFeature, Spec]], dict[int, list[str]]]:
@@ -317,7 +526,7 @@ def attribute(
 
     specs: list[tuple[RFeature, Spec]] = []
     for f in plan.features:
-        for s in surfaces_for(f):
+        for s in surfaces_for(f, plan):
             specs.append((f, s))
 
     for i, face in enumerate(faces):
@@ -329,6 +538,12 @@ def attribute(
                 score = _plane_score(fp, spec)
             elif isinstance(spec, CylinderSpec):
                 score = _cylinder_score(fp, spec)
+            elif isinstance(spec, ConeSpec):
+                score = _cone_score(fp, spec)
+            elif isinstance(spec, SphereSpec):
+                score = _sphere_score(fp, spec)
+            elif isinstance(spec, TorusSpec):
+                score = _torus_score(fp, spec)
             else:
                 score = _flank_score(fp, spec)
             if score is None:

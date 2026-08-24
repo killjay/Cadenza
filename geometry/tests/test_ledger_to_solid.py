@@ -242,7 +242,7 @@ def test_leading_subtract_is_rejected():
 
 def test_unknown_feature_kind_names_what_is_supported():
     with pytest.raises(GeometryError) as e:
-        resolve(ledger(feature("feat_x_1", "torus", {"diameter": 5})))
+        resolve(ledger(feature("feat_x_1", "flux_capacitor", {"diameter": 5})))
     assert e.value.code is GeometryErrorCode.UNSUPPORTED_FEATURE
 
 

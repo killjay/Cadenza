@@ -180,9 +180,9 @@ class FakeClient:
         self.payload = payload
         self.calls: list[dict] = []
 
-    async def complete_json(self, *, stage, system, user, schema=None, images=None, **kw):
+    async def complete_json(self, *, stage, agent_card, user, images=None, max_tokens=None, effort=None, context=None, **kw):
         self.calls.append(
-            {"stage": stage, "system": system, "user": user, "images": images or []}
+            {"stage": stage, "system": agent_card.system_prompt, "user": user, "images": images or []}
         )
         return self.payload
 

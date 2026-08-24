@@ -134,7 +134,14 @@ class Build123dGeometryService:
             built.plan, built.faces, built.attribution, built.ambiguity, query, built.solid
         )
 
-    def probe_point(
+
+    def run_probe_query(self, ledger: Any, query: dict) -> dict:
+        """Executes a geometric probe query (bounding box, collision, etc.)"""
+        from cadenza_geometry.probe import run_probe_query
+        built = self._compile(ledger)
+        return run_probe_query(built, query)
+
+    def probe_point_legacy(
         self,
         ledger: Any,
         point: tuple[float, float, float],

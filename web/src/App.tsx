@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { TitleBar } from "./components/TitleBar";
 import { Viewport } from "./components/Viewport";
-import { PointAndSpeak } from "./components/PointAndSpeak";
+
 import { SidePane } from "./components/SidePane";
 import { StatusBar } from "./components/StatusBar";
 import { useStore } from "./lib/store";
@@ -27,7 +27,7 @@ export default function App() {
       <main className="grid min-h-0 grid-cols-[minmax(0,1fr)_290px]">
         <div className="relative min-h-0">
           <Viewport />
-          <PointAndSpeak />
+
         </div>
         <SidePane />
       </main>

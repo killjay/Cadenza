@@ -2,13 +2,12 @@
 
 ## The one thing that will confuse you
 
-**The server must run from `geometry/.venv`, not `backend/.venv`.**
+**The server must run from the top-level `.venv`.**
 
 Geometry is an in-process call (`ARCHITECTURE.md` §2), so the process that
 serves WebSockets is the same process that runs build123d — it needs both
-dependency sets. `geometry/.venv` is the one that has both. `backend/.venv`
-still exists and still passes the tests, but it has no build123d, so it falls
-back to the stub geometry backend and produces no GLB.
+dependency sets. The top-level `.venv` is configured to hold all dependencies
+across the workspace (API backend, geometric kernel, and shared contracts).
 
 `GET /health` tells you which backend answered:
 
@@ -18,9 +17,7 @@ back to the stub geometry backend and produces no GLB.
 ```
 
 If the viewport stays empty and the transcript says *"built this without a
-geometry kernel"*, you are running the wrong interpreter. That degradation is
-deliberate — a venv without OCCT can still run the transport, the agents and the
-tests — but it is not what you want in front of a user.
+geometry kernel"*, you are running an interpreter without build123d installed.
 
 ## Start it
 
@@ -32,7 +29,7 @@ cd cadenza
 $EDITOR .env            # ANTHROPIC_API_KEY=sk-ant-…
 
 # server
-geometry/.venv/bin/python -m uvicorn cadenza_backend.app:app --reload --port 8000
+.venv\Scripts\python -m uvicorn cadenza_backend.app:app --reload --port 8000
 
 # web (separate shell) — vite proxies /ws to :8000
 cd web && npm run dev
@@ -44,9 +41,9 @@ into the composer in the right-hand pane.
 ## Tests
 
 ```bash
-cd backend  && ../geometry/.venv/bin/python -m pytest -q   # 64
-cd shared   && ../geometry/.venv/bin/python -m pytest -q   # 20
-cd geometry && .venv/bin/python -m pytest -q               # 56
+cd backend  && ..\.venv\Scripts\python -m pytest -q   # 64
+cd shared   && ..\.venv\Scripts\python -m pytest -q   # 20
+cd geometry && ..\.venv\Scripts\python -m pytest -q   # 56
 cd web      && npm run typecheck && npm run build
 ```
 
@@ -57,15 +54,12 @@ no substitute for looking at the part it produced.
 
 ## Rebuilding the combined venv
 
-If `geometry/.venv` is ever recreated, it needs the backend's dependencies too:
+If the root `.venv` is ever recreated, you can reinstall all dependencies via:
 
 ```bash
 cd cadenza
-uv pip install --python geometry/.venv/bin/python \
-  "fastapi>=0.115" "uvicorn[standard]>=0.30" "pydantic-settings>=2.4" \
-  "httpx>=0.27" "anthropic>=0.40" "websockets>=13.0" "jsonpatch>=1.33" \
-  "pytest>=8.0" "pytest-asyncio>=0.24"
-uv pip install --python geometry/.venv/bin/python -e ./geometry -e ./backend
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
 ## Image input, in one paragraph

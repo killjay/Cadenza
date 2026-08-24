@@ -290,7 +290,7 @@ export const useStore = create<State>((set, get) => ({
 
   /** The composer: a prompt with no click, optionally carrying sketches. */
   submitComposer(text) {
-    const { attachments } = get();
+    const { attachments, selection } = get();
     const prompt = text.trim();
     // An image on its own is a complete instruction; text alone is too. Only
     // the empty case is refused.
@@ -300,14 +300,16 @@ export const useStore = create<State>((set, get) => ({
       prompt: prompt || "Build the part shown in the attached drawing.",
       images: attachments.map(({ media_type, data, name }) => ({ media_type, data, name })),
       baseRevision: get().model?.revision,
+      ...(selection ? { target: { point: selection.point, normal: selection.normal } } : {}),
     });
 
     get().say({
       kind: "user",
       text: prompt || `(${attachments.length} sketch${attachments.length > 1 ? "es" : ""})`,
       images: attachments.map((a) => a.previewUrl),
+      ...(selection ? { point: selection.point } : {}),
     });
-    set({ busy: true, phase: "sent", attachments: [] });
+    set({ busy: true, phase: "sent", attachments: [], selection: null, promptOpen: false });
   },
 
   async addFiles(files) {

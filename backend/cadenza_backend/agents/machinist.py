@@ -122,17 +122,27 @@ THE LEDGER
 The ledger is the single source of truth. Its shape:
   - `features`: an ORDERED array. Order is build order and matters for booleans.
     The first non-suppressed feature must be additive (`operation: "add"`).
-  - Each feature has: `id`, `name`, `kind` ("box" | "cylinder" | "hole" | "gear"),
+  - Each feature has: `id`, `name`, `kind` ("box" | "cylinder" | "hole" | "gear" | "cone" | "sphere" | "torus" | "sketch" | "linear_pattern" | "circular_pattern"),
     `operation` ("add" | "subtract"), `parameters`, `placement`, `suppressed`,
     `ai_context`.
   - Parameters by kind:
-      box      -> length (+X), width (+Y), height (+Z)
-      cylinder -> diameter, height (+Z)
+      box      -> length (+X), width (+Y), height (+Z), draft_angle (optional), through (optional bool)
+      cylinder -> diameter, height (+Z), draft_angle (optional), through (optional bool)
       hole     -> diameter, through (bool), depth (required when through is false)
       gear     -> module, teeth, height (+Z), pressure_angle_deg, shift
-  - `placement.origin` is [x, y, z]. For box, cylinder and gear it is the CENTRE of
+      cone     -> bottom_diameter, top_diameter, height (+Z)
+      sphere   -> diameter
+      torus    -> major_diameter, minor_diameter
+      edge_fillet  -> length, radius
+      edge_chamfer -> length, width
+      sketch       -> vertices (array of [x,y]), height (+Z), draft_angle (optional)
+      linear_pattern   -> target_feature (string ID), count, spacing, axis ([x,y,z] vector)
+      circular_pattern -> target_feature (string ID), count, sweep_angle
+  - `placement.origin` is [x, y, z]. For box, cylinder, gear and sketch it is the CENTRE of
     the footprint with z at the BASE of the solid. For a hole it is where the hole
-    axis meets the face being cut, and the hole runs along -Z.
+    axis meets the face being cut, and the hole runs along -Z. For a linear_pattern,
+    the origin/orientation define the frame for the axis. For a circular_pattern, the origin
+    defines the pivot center and orientation defines the axis of rotation (local Z).
 
 EDITING A GEAR
 A gear has no diameter field — its size comes from `module` x `teeth`:
@@ -150,6 +160,15 @@ request implies a ratio ("twice as fast"), patch `teeth` and state the resulting
 ratio in `summary`.
 Never patch `pressure_angle_deg` to resize anything — it must match the gear's
 mating partner, and 20 degrees is standard.
+
+OVERSHOOT FOR SUBTRACTIVE CUTS
+When subtracting shapes, if the cutter's face sits exactly flush with the part's face, the CAD kernel can fail with a coplanar zero-thickness error.
+To prevent this, use `through: true` for `hole`, `box`, or `cylinder` pockets. The geometry engine will automatically overshoot the cut to break cleanly through. For manual shapes that don't support `through` (like `cone`), you MUST manually overshoot by at least 1mm, and drop the origin by 0.5mm.
+
+CHAMFERS AND FILLETS
+Native topological chamfer and fillet operations do not exist (they are parametrically fragile). Instead, you compose them with Constructive Solid Geometry (CSG):
+- For CIRCULAR features (like holes): Subtract a `cone` (chamfer) or `torus` (fillet) placed exactly at the hole's origin. Use `relative_to: "<parent_hole_id>"` in the `placement` to lock them together.
+- For STRAIGHT edges: Use the `edge_chamfer` or `edge_fillet` feature kinds. Place them at the edge's corner and set `operation: "subtract"`. The `edge_fillet` takes `length` and `radius`; `edge_chamfer` takes `length` and `width`.
 
 HARD RULES
 1. Units are ALWAYS millimetres. Never emit a value in inches or centimetres.
@@ -182,6 +201,19 @@ without a number, pick a sensible step (a standard drill size, or a proportional
 increase), apply it, and record it in `assumptions`. Only set `needs_clarification` when
 the request is genuinely unresolvable — for example, when it names a feature that does
 not exist and no click was made — and then leave `patch` empty.
+
+STANDARD HARDWARE LOOKUP
+You have access to a `lookup_hardware_dimensions` tool. If the user requests standard
+hardware (e.g., "change to an M8 bolt hole" or "add clearance for M6 socket head cap screw"),
+do NOT guess the dimensions. You MUST use the tool to fetch the exact clearance, tap drill,
+and counterbore sizes before generating the patch. Do this for all metric socket head screws requested.
+
+MATH SANDBOX
+You have access to a `math_sandbox` tool. ALWAYS use it to calculate coordinates for patterns, 
+bolt circles, arrays, or trigonometry. Do NOT try to calculate trigonometry or array coordinates 
+in your head—you will fail and hallucinate incorrect dimensions. Write a small python script 
+and use the pre-packaged helper functions (e.g. `result = bolt_circle(40, 6)`) to get perfect 
+coordinates before you place the features.
 """
 
 
@@ -210,15 +242,24 @@ async def run_machinist(
     Raises `AIError` if the model fails, refuses, or returns a payload that does
     not satisfy `AgentPatchOutput`.
     """
+    from cadenza_backend.agents.core import AgentCard
+    
     settings = get_settings()
     client = client or ModelClient()
 
+    card = AgentCard(
+        name="Machinist",
+        system_prompt=MACHINIST_SYSTEM,
+        output_schema=MACHINIST_OUTPUT_SCHEMA,
+        tools=["lookup_hardware_dimensions", "math_sandbox", "geometry_probe"]
+    )
+
     raw = await client.complete_json(
         stage="machinist",
-        system=MACHINIST_SYSTEM,
+        agent_card=card,
         user=build_machinist_user_message(ledger, prompt, semantic_context),
-        schema=MACHINIST_OUTPUT_SCHEMA,
         effort=settings.machinist_effort,
+        context={"ledger": ledger}
     )
 
     try:

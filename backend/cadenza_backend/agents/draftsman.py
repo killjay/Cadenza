@@ -267,6 +267,19 @@ rather than refusing, and record every inferred number in `assumptions` with the
 you used. Missing NUMBERS are for you to infer. A missing FORM is not: set
 `needs_clarification` when the description needs geometry you cannot build, or when it
 does not describe a physical part at all.
+
+STANDARD HARDWARE LOOKUP
+You have access to a `lookup_hardware_dimensions` tool. If the user requests standard
+hardware (e.g., "M8 bolt hole" or "clearance for M6 socket head cap screw"), do NOT guess
+the dimensions. You MUST use the tool to fetch the exact clearance, tap drill, and counterbore
+sizes before generating the hole feature. Do this for all metric socket head screws requested.
+
+MATH SANDBOX
+You have access to a `math_sandbox` tool. ALWAYS use it to calculate coordinates for patterns, 
+bolt circles, arrays, or trigonometry. Do NOT try to calculate trigonometry or array coordinates 
+in your head—you will fail and hallucinate incorrect dimensions. Write a small python script 
+and use the pre-packaged helper functions (e.g. `result = bolt_circle(40, 6)`) to get perfect 
+coordinates before you place the features.
 """
 
 
@@ -387,14 +400,22 @@ async def run_draftsman(
     client: ModelClient | None = None,
 ) -> tuple[list[Feature], DraftsmanOutput]:
     """Generate the initial feature list. Returns (contract features, raw output)."""
+    from cadenza_backend.agents.core import AgentCard
+    
     client = client or ModelClient()
     has_images = bool(images)
 
+    card = AgentCard(
+        name="Draftsman",
+        system_prompt=draftsman_system(has_images),
+        output_schema=DRAFTSMAN_OUTPUT_SCHEMA,
+        tools=["lookup_hardware_dimensions", "math_sandbox"]
+    )
+
     raw = await client.complete_json(
         stage="draftsman",
-        system=draftsman_system(has_images),
+        agent_card=card,
         user=build_draftsman_user_message(prompt, has_images),
-        schema=DRAFTSMAN_OUTPUT_SCHEMA,
         images=images,
     )
 
