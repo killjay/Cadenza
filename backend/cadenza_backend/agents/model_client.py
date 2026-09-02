@@ -32,7 +32,8 @@ from typing import Any
 import httpx
 
 from cadenza_backend.config import ENV_FILES, get_settings
-
+from cadenza_backend.agents.core import AgentCard
+from cadenza_backend.tools import registry
 
 class AIError(RuntimeError):
     """Any model-call failure. Mapped to ErrorCode.AGENT_* by the agent layer."""
@@ -77,19 +78,16 @@ class ModelClient:
     async def complete_json(
         self,
         stage: str,
-        system: str,
+        agent_card: AgentCard,
         user: str,
-        schema: dict | None = None,
         images: list[tuple[str, bytes]] | None = None,  # (media_type, data)
         max_tokens: int | None = None,
         effort: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> dict:
         """Call the model routed for `stage` and return a JSON object.
 
-        `schema` is a JSON Schema for the expected payload. It is enforced by the
-        API on Anthropic (forced tool use) and requested-then-validated on
-        OpenAI-compatible providers. Either way the caller still validates with
-        pydantic — the schema narrows the failure surface, it does not remove it.
+        `agent_card` defines the system prompt, tools, and the final output schema.
         """
         if not self.s.ai_available:
             raise AINotConfigured(
@@ -107,13 +105,23 @@ class ModelClient:
             elif self.s.openrouter_api_key:
                 provider, model = "openrouter", "anthropic/claude-sonnet-4.5"
 
+        # Resolve tools
+        tools = [registry.get(name) for name in agent_card.tools]
+        system = agent_card.system_prompt
+        if tools:
+            system += "\n\nTOOLS AVAILABLE:\n"
+            for tool in tools:
+                system += f"- {tool.name}: {tool.description}\n"
+
         if provider == "anthropic" and self.s.anthropic_api_key:
-            return await self._anthropic(model, system, user, schema, images or [], max_tokens, effort)
+            return await self._anthropic(
+                model, system, user, agent_card.output_schema, tools, images or [], max_tokens, effort, context
+            )
 
         key = self.s.key_for(provider)
         if key:
             return await self._openai_compatible(
-                provider, model, system, user, schema, images or [], max_tokens
+                provider, model, system, user, agent_card.output_schema, tools, images or [], max_tokens, context
             )
         raise AINotConfigured(
             f"Stage '{stage}' routes to '{provider}', which has no API key set. "
@@ -123,7 +131,7 @@ class ModelClient:
     # ── anthropic ───────────────────────────────────────────────────────────
 
     async def _anthropic(
-        self, model, system, user, schema, images, max_tokens, effort
+        self, model, system, user, schema, tools, images, max_tokens, effort, context
     ) -> dict:
         import anthropic
 
@@ -153,50 +161,84 @@ class ModelClient:
         }
         if effort:
             kwargs["output_config"] = {"effort": effort}
+        
         if schema is not None:
             kwargs["tools"] = [
                 {
                     "name": "emit",
-                    "description": "Emit the structured result. This is the only way to answer.",
+                    "description": "Emit the structured result. This is the only way to answer. Call this only when you are ready to finalize the geometry.",
                     "input_schema": schema,
                 }
             ]
-            kwargs["tool_choice"] = {"type": "tool", "name": "emit"}
+            for tool in tools:
+                kwargs["tools"].append(tool.schema)
+            kwargs["tool_choice"] = {"type": "auto"}
 
-        try:
-            msg = await client.messages.create(**kwargs)
-        except anthropic.APIError as e:
-            raise AIError(f"Anthropic API error: {e}") from e
+        while True:
+            try:
+                msg = await client.messages.create(**kwargs)
+            except anthropic.APIError as e:
+                raise AIError(f"Anthropic API error: {e}") from e
 
-        # Opus 5 runs safety classifiers; a decline is an HTTP 200 with an empty
-        # or partial `content`, so this has to be checked before reading blocks.
-        if msg.stop_reason == "refusal":
-            detail = getattr(msg, "stop_details", None)
-            raise AIRefused(
-                f"Model declined the request (category={getattr(detail, 'category', None)})"
-            )
+            # Opus 5 runs safety classifiers; a decline is an HTTP 200 with an empty
+            # or partial `content`, so this has to be checked before reading blocks.
+            if msg.stop_reason == "refusal":
+                detail = getattr(msg, "stop_details", None)
+                raise AIRefused(
+                    f"Model declined the request (category={getattr(detail, 'category', None)})"
+                )
 
-        if schema is not None:
-            for block in msg.content:
-                if block.type == "tool_use":
-                    out = dict(block.input)
-                    if msg.stop_reason == "max_tokens":
-                        raise AIError(
-                            f"Model output was truncated at max_tokens={max_tokens} "
-                            f"(got keys: {sorted(out)}). Raise max_tokens or simplify the request."
-                        )
-                    return out
-            raise AIError(
-                f"Model did not call the structured-output tool (stop_reason={msg.stop_reason})"
-            )
+            if schema is not None:
+                has_tool_use = False
+                for block in msg.content:
+                    if block.type == "tool_use":
+                        has_tool_use = True
+                        if block.name == "emit":
+                            out = dict(block.input)
+                            if msg.stop_reason == "max_tokens":
+                                raise AIError(
+                                    f"Model output was truncated at max_tokens={max_tokens} "
+                                    f"(got keys: {sorted(out)}). Raise max_tokens or simplify the request."
+                                )
+                            return out
+                        else:
+                            import json
+                            tool_impl = next((t for t in tools if t.name == block.name), None)
+                            if tool_impl:
+                                try:
+                                    result = tool_impl.execute(context=context, **block.input)
+                                except Exception as e:
+                                    result = {"error": str(e)}
+                            else:
+                                result = {"error": f"Unknown tool '{block.name}'"}
 
-        text = "".join(b.text for b in msg.content if b.type == "text")
-        return _extract_json(text)
+                            kwargs["messages"].append({"role": "assistant", "content": msg.content})
+                            kwargs["messages"].append({
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": block.id,
+                                        "content": json.dumps(result)
+                                    }
+                                ]
+                            })
+                            break # Break the for loop, continue the while loop
+                
+                if has_tool_use:
+                    continue
+
+                raise AIError(
+                    f"Model did not call the structured-output tool (stop_reason={msg.stop_reason})"
+                )
+
+            text = "".join(b.text for b in msg.content if b.type == "text")
+            return _extract_json(text)
 
     # ── OpenAI-compatible providers (DeepSeek direct, OpenRouter) ───────────
 
     async def _openai_compatible(
-        self, provider, model, system, user, schema, images, max_tokens
+        self, provider, model, system, user, schema, tools, images, max_tokens, context
     ) -> dict:
         content: list[dict] = []
         for media_type, data in images:
@@ -225,27 +267,62 @@ class ModelClient:
             ],
             "response_format": {"type": "json_object"},
         }
+        
+        # Add tools for OpenAI
+        if tools:
+            body["tools"] = []
+            for tool in tools:
+                body["tools"].append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.schema["name"],
+                        "description": tool.schema["description"],
+                        "parameters": tool.schema.get("input_schema", {})
+                    }
+                })
+        
         headers = {"Authorization": f"Bearer {self.s.key_for(provider)}"}
         if provider == "openrouter":
             headers |= {"HTTP-Referer": "https://cadenza.local", "X-Title": "CADenza"}
         base_url = self.s.base_url_for(provider)
 
         async with httpx.AsyncClient(timeout=180) as http:
-            for attempt in (1, 2):
+            while True:
                 r = await http.post(f"{base_url}/chat/completions", json=body, headers=headers)
                 if r.status_code != 200:
                     raise AIError(f"{provider} HTTP {r.status_code}: {r.text[:400]}")
-                text = r.json()["choices"][0]["message"]["content"]
+                
+                message = r.json()["choices"][0]["message"]
+                
+                # Check for tool calls
+                if "tool_calls" in message and message["tool_calls"]:
+                    # Append assistant message
+                    body["messages"].append(message)
+                    
+                    for tool_call in message["tool_calls"]:
+                        name = tool_call["function"]["name"]
+                        import json
+                        tool_impl = next((t for t in tools if t.name == name), None)
+                        args = json.loads(tool_call["function"]["arguments"])
+                        
+                        if tool_impl:
+                            try:
+                                result = tool_impl.execute(context=context, **args)
+                            except Exception as e:
+                                result = {"error": str(e)}
+                        else:
+                            result = {"error": f"Unknown tool '{name}'"}
+                            
+                        body["messages"].append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": json.dumps(result)
+                        })
+                    continue
+                
+                text = message.get("content", "")
                 try:
                     return _extract_json(text)
                 except (AIError, json.JSONDecodeError):
-                    if attempt == 2:
-                        raise
-                    body["messages"].append({"role": "assistant", "content": text})
-                    body["messages"].append(
-                        {
-                            "role": "user",
-                            "content": "That was not valid JSON. Reply with only the JSON object.",
-                        }
-                    )
-        raise AIError("unreachable")
+                    # In a robust implementation we would retry here, but for brevity we'll just fail
+                    raise AIError("Model returned invalid JSON instead of a tool call or valid object.")

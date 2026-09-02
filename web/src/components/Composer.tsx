@@ -16,6 +16,15 @@ import { useEffect, useRef, useState } from "react";
 import { imageFilesFrom } from "../lib/image";
 import { useStore } from "../lib/store";
 
+function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selection"]>): string {
+  const info = sel.info;
+  if (!info) return "resolving face…";
+  if (info.surfaceType === "cylinder" && info.radius) {
+    return `Ø${(info.radius * 2).toFixed(1)} cylindrical face · ${info.area.toFixed(0)} mm²`;
+  }
+  return `${info.surfaceType} face · ${info.area.toFixed(0)} mm²`;
+}
+
 export function Composer() {
   const attachments = useStore((s) => s.attachments);
   const attaching = useStore((s) => s.attaching);
@@ -24,6 +33,8 @@ export function Composer() {
   const addFiles = useStore((s) => s.addFiles);
   const removeAttachment = useStore((s) => s.removeAttachment);
   const submitComposer = useStore((s) => s.submitComposer);
+  const selection = useStore((s) => s.selection);
+  const select = useStore((s) => s.select);
 
   const [text, setText] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -121,6 +132,25 @@ export function Composer() {
         </div>
       )}
 
+      {selection && (
+        <div className="mb-1.5 flex items-center justify-between rounded-base border border-accent bg-accent/5 px-2 py-1.5 text-11">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="truncate font-medium text-accent">{describe(selection)}</span>
+            <span className="font-mono text-10 text-accent/70">
+              {selection.point[0].toFixed(1)}, {selection.point[1].toFixed(1)}, {selection.point[2].toFixed(1)}
+            </span>
+          </div>
+          <button
+            onClick={() => select(null)}
+            className="shrink-0 p-1 text-accent hover:text-accent-hover hover:bg-accent/10 rounded-sm"
+            aria-label="Clear selection"
+            title="Clear selection"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <textarea
         ref={areaRef}
         value={text}
@@ -134,7 +164,9 @@ export function Composer() {
         rows={2}
         maxLength={limits.max_prompt_chars}
         placeholder={
-          attachments.length
+          selection 
+            ? "What should happen to this face?"
+            : attachments.length
             ? "Anything to add about the drawing? (optional)"
             : "Describe a part, or drop in a sketch…"
         }

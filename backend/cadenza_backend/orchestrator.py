@@ -22,7 +22,7 @@ Two ordering rules are load-bearing and easy to get backwards:
 from __future__ import annotations
 
 import time
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 
@@ -41,6 +41,7 @@ from cadenza_backend.contracts_bridge import (
     AgentPatchOutput,
     CadenzaError,
     ErrorCode,
+    Feature,
     PatchOp,
 )
 from cadenza_backend.session import Session
@@ -197,15 +198,43 @@ async def handle_prompt(
         if not outcome.ok:
             # The store never saw the candidate, so the client stays exactly
             # where it was — which is what `current_revision` tells it.
-            await emit(
-                GeometryFailed(
-                    message_id=message_id,
-                    current_revision=session.store.ledger.revision,
-                    code=outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE,
-                    message=outcome.detail,
-                    feature_id=outcome.feature_id,
+            failed_feature = next((f for f in candidate.ledger.features if f.id == outcome.feature_id), None) if outcome.feature_id else None
+
+            if outcome.code == ErrorCode.GEOMETRY_KERNEL_FAILURE:
+                # Case C: Internal kernel error
+                await emit(
+                    GeometryFailed(
+                        message_id=message_id,
+                        current_revision=session.store.ledger.revision,
+                        code=outcome.code,
+                        message="Something went wrong internally building this shape. Try describing the part differently.",
+                        detail={"reason": outcome.detail} if isinstance(outcome.detail, str) else outcome.detail,
+                        feature_id=outcome.feature_id,
+                    )
                 )
-            )
+            elif _assumption_relates_to_failure(failed_feature, assumptions):
+                # Case B: LLM assumed dimensions that broke the model
+                await emit(
+                    AgentMessage(
+                        message_id=message_id,
+                        needs_clarification=True,
+                        text=f"I assumed some dimensions that caused a geometry conflict ({outcome.detail}). To get this exactly right, you can either type the exact size you want, or hover/click the model to select the face/coordinates.",
+                        assumptions=assumptions
+                    )
+                )
+            else:
+                # Case A: User dimensions caused conflict
+                await emit(
+                    GeometryFailed(
+                        message_id=message_id,
+                        current_revision=session.store.ledger.revision,
+                        code=outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE,
+                        message=f"The dimensions you provided cause a geometry conflict.",
+                        detail={"reason": outcome.detail} if isinstance(outcome.detail, str) else outcome.detail,
+                        feature_id=outcome.feature_id,
+                    )
+                )
+                
             await status(AgentPhase.DONE)
             return
 
@@ -293,6 +322,35 @@ async def handle_prompt(
                 detail=f"{type(exc).__name__}: {exc}",
             )
         )
+
+
+def _assumption_relates_to_failure(feature: Feature | None, assumptions: list[dict[str, Any]]) -> bool:
+    if not assumptions:
+        return False
+    if not feature:
+        return len(assumptions) > 0
+
+    for a in assumptions:
+        field = str(a.get("field", "")).lower()
+        
+        # 1. Direct ID match (Machinist patch path)
+        if feature.id in field:
+            return True
+            
+        # 2. Name match (Draftsman might include the feature name, e.g., "base plate length")
+        if feature.name and feature.name.lower() in field:
+            return True
+            
+        # 3. Unscoped parameter match (Draftsman bare parameter, e.g., "diameter")
+        if not ("/" in field or "feat_" in field):
+            # Check if this parameter actually exists on this feature
+            if field in type(feature.parameters).model_fields or field in type(feature.placement).model_fields:
+                return True
+            # Also handle if they prefixed it with the kind, e.g., "hole diameter"
+            if feature.kind in field:
+                return True
+                
+    return False
 
 
 def _store_artifacts(

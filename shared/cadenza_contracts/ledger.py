@@ -87,6 +87,7 @@ class Placement(_Model):
 
     origin: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     rotation_deg: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    relative_to: str | None = Field(default=None, pattern=FEATURE_ID_PATTERN)
 
 
 class TargetRef(_Model):
@@ -141,11 +142,15 @@ class BoxParameters(_Model):
     length: Positive  # along +X
     width: Positive   # along +Y
     height: Positive  # along +Z
+    through: bool = False
+    draft_angle: float = 0.0  # Taper angle in degrees
 
 
 class CylinderParameters(_Model):
     diameter: Positive
     height: Positive  # along +Z
+    through: bool = False
+    draft_angle: float = 0.0  # Taper angle in degrees
 
 
 class HoleParameters(_Model):
@@ -189,6 +194,53 @@ class GearParameters(_Model):
     shift: float = Field(default=0.0, ge=-1.0, le=1.0)
 
 
+class ConeParameters(_Model):
+    bottom_diameter: Positive
+    top_diameter: Positive
+    height: Positive
+
+
+class SphereParameters(_Model):
+    diameter: Positive
+
+
+class TorusParameters(_Model):
+    major_diameter: Positive
+    minor_diameter: Positive
+
+
+class EdgeFilletParameters(_Model):
+    length: Positive
+    radius: Positive
+
+
+class EdgeChamferParameters(_Model):
+    length: Positive
+    width: Positive
+
+
+class LinearPatternParameters(_Model):
+    target_feature: str = Field(pattern=FEATURE_ID_PATTERN)
+    count: int = Field(ge=2)
+    spacing: float
+    axis: Vec3 = Field(default_factory=lambda: [1.0, 0.0, 0.0])
+
+
+class CircularPatternParameters(_Model):
+    target_feature: str = Field(pattern=FEATURE_ID_PATTERN)
+    count: int = Field(ge=2)
+    radius: Positive
+    sweep_angle: float = 360.0
+
+
+Vec2 = tuple[float, float]
+
+class SketchParameters(_Model):
+    vertices: list[Vec2] = Field(min_length=3)
+    height: Positive
+    draft_angle: float = 0.0
+
+
 # --------------------------------------------------------------------------- #
 # features — discriminated union on `kind`
 # --------------------------------------------------------------------------- #
@@ -218,13 +270,73 @@ class GearFeature(_FeatureBase):
     parameters: GearParameters
 
 
+class ConeFeature(_FeatureBase):
+    kind: Literal["cone"] = "cone"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: ConeParameters
+
+
+class SphereFeature(_FeatureBase):
+    kind: Literal["sphere"] = "sphere"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: SphereParameters
+
+
+class TorusFeature(_FeatureBase):
+    kind: Literal["torus"] = "torus"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: TorusParameters
+
+
+class EdgeFilletFeature(_FeatureBase):
+    kind: Literal["edge_fillet"] = "edge_fillet"
+    operation: Literal["add", "subtract"] = "subtract"
+    parameters: EdgeFilletParameters
+
+
+class EdgeChamferFeature(_FeatureBase):
+    kind: Literal["edge_chamfer"] = "edge_chamfer"
+    operation: Literal["add", "subtract"] = "subtract"
+    parameters: EdgeChamferParameters
+
+
+class SketchFeature(_FeatureBase):
+    kind: Literal["sketch"] = "sketch"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: SketchParameters
+
+
+class LinearPatternFeature(_FeatureBase):
+    kind: Literal["linear_pattern"] = "linear_pattern"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: LinearPatternParameters
+
+
+class CircularPatternFeature(_FeatureBase):
+    kind: Literal["circular_pattern"] = "circular_pattern"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: CircularPatternParameters
+
+
 Feature = Annotated[
-    Union[BoxFeature, CylinderFeature, HoleFeature, GearFeature],
+    Union[
+        BoxFeature,
+        CylinderFeature,
+        HoleFeature,
+        GearFeature,
+        ConeFeature,
+        SphereFeature,
+        TorusFeature,
+        EdgeFilletFeature,
+        EdgeChamferFeature,
+        SketchFeature,
+        LinearPatternFeature,
+        CircularPatternFeature,
+    ],
     Field(discriminator="kind"),
 ]
 
-FEATURE_KINDS = ("box", "cylinder", "hole", "gear")
-
+FEATURE_KINDS = ("box", "cylinder", "hole", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "linear_pattern", "circular_pattern")
 
 # --------------------------------------------------------------------------- #
 # the ledger

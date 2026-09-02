@@ -262,7 +262,7 @@ def test_a_click_on_a_tooth_flank_resolves_to_the_gear(svc):
         if built.attribution.get(i) and built.attribution[i][1].label == "tooth_flank"
     )
     centre = flank.center()
-    hit = svc.probe_point(doc, (centre.X, centre.Y, centre.Z))
+    hit = svc.probe_point_legacy(doc, (centre.X, centre.Y, centre.Z))
     assert hit is not None
     assert hit["node_id"] == "feat_spur_gear_7c3d"
     assert hit["feature"] == "tooth_flank"

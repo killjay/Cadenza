@@ -30,7 +30,7 @@ from cadenza_geometry.gear import (
     undercut_warning,
 )
 
-SUPPORTED_KINDS = {"box", "cylinder", "hole", "gear"}
+SUPPORTED_KINDS = {"box", "cylinder", "hole", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "linear_pattern", "circular_pattern", "shell", "revolve", "loft", "extrude"}
 
 # Positive-dimension fields, by feature kind. A gear's `teeth`, `pressure_angle`
 # and `shift` are NOT here: teeth is an integer count, and shift is legitimately
@@ -40,6 +40,18 @@ _SCALARS: dict[str, tuple[str, ...]] = {
     "cylinder": ("diameter", "height"),
     "hole": ("diameter",),
     "gear": ("module", "height"),
+    "cone": ("bottom_diameter", "top_diameter", "height"),
+    "sphere": ("diameter",),
+    "torus": ("major_diameter", "minor_diameter"),
+    "edge_fillet": ("radius",),
+    "edge_chamfer": ("width",),
+    "sketch": (),
+    "linear_pattern": ("spacing",),
+    "circular_pattern": (),
+    "shell": (),  # thickness can be negative
+    "revolve": (), # angle can be optional (default 360)
+    "loft": (),
+    "extrude": ("amount",),
 }
 
 TOL = 1e-7
@@ -66,8 +78,9 @@ class RFeature:
     name: str
     origin: tuple[float, float, float]
     rotation_deg: tuple[float, float, float]
-    p: dict[str, float] = field(default_factory=dict)
-    through: bool = True
+    relative_to: str | None = None
+    p: dict[str, Any] = field(default_factory=dict)
+    through: bool = False
     depth: float | None = None
     index: int = 0
     #: Derived gear radii and angles, resolved once at plan time. Set for
@@ -92,9 +105,75 @@ class RFeature:
             assert self.gear is not None  # set by resolve() for every gear
             r = self.gear.tip_radius
             return (-r, -r, 0.0), (r, r, self.p["height"])
-        r = self.p["diameter"] / 2
-        d = self.depth if not self.through else 0.0
-        return (-r, -r, -(d or 0.0)), (r, r, 0.0)
+        if self.kind == "cone":
+            r = max(self.p["bottom_diameter"], self.p["top_diameter"]) / 2
+            return (-r, -r, 0.0), (r, r, self.p["height"])
+        if self.kind == "sphere":
+            r = self.p["diameter"] / 2
+            return (-r, -r, -r), (r, r, r)
+        if self.kind == "torus":
+            r = (self.p["major_diameter"] + self.p["minor_diameter"]) / 2
+            h = self.p["minor_diameter"] / 2
+            return (-r, -r, -h), (r, r, h)
+        if self.kind == "edge_fillet":
+            r = self.p["radius"]
+            hl = self.p["length"] / 2
+            return (0.0, 0.0, -hl), (r, r, hl)
+        if self.kind == "edge_chamfer":
+            w = self.p["width"]
+            hl = self.p["length"] / 2
+            return (0.0, 0.0, -hl), (w, w, hl)
+        if self.kind == "hole":
+            r = self.p["diameter"] / 2
+            d = self.depth if not self.through else 0.0
+            return (-r, -r, -(d or 0.0)), (r, r, 0.0)
+        if self.kind == "sketch":
+            xs, ys = [], []
+            verts = self.p.get("vertices", [])
+            edges = self.p.get("edges", [])
+            for v in verts:
+                xs.append(v[0])
+                ys.append(v[1])
+            for e in edges:
+                if "p1" in e:
+                    xs.append(e["p1"][0])
+                    ys.append(e["p1"][1])
+                if "p2" in e:
+                    xs.append(e["p2"][0])
+                    ys.append(e["p2"][1])
+                if "p3" in e:
+                    xs.append(e["p3"][0])
+                    ys.append(e["p3"][1])
+            if not xs or not ys:
+                return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+            return (min(xs), min(ys), 0.0), (max(xs), max(ys), self.p["height"])
+        if self.kind in ("linear_pattern", "circular_pattern", "extrude"):
+            return (-1000.0, -1000.0, -1000.0), (1000.0, 1000.0, 1000.0)
+        if self.kind == "revolve":
+            verts = self.p.get("vertices", [])
+            if not verts:
+                return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+            xs = [v[0] for v in verts]
+            ys = [v[1] for v in verts]
+            rmax = max([abs(x) for x in xs] + [abs(y) for y in ys]) # approx bounds
+            zmin = min(ys)
+            zmax = max(ys)
+            return (-rmax, -rmax, zmin), (rmax, rmax, zmax)
+        if self.kind == "loft":
+            xs, ys, zs = [], [], []
+            sections = self.p.get("sections", [])
+            for s in sections:
+                loc = s.get("location", {})
+                origin = loc.get("origin", [0,0,0])
+                xs.append(origin[0])
+                ys.append(origin[1])
+                zs.append(origin[2])
+            if not xs:
+                return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+            # Rough bounds based on section origins + some padding
+            rmax = 50.0
+            return (min(xs)-rmax, min(ys)-rmax, min(zs)-rmax), (max(xs)+rmax, max(ys)+rmax, max(zs)+rmax)
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
 
 
 @dataclass
@@ -223,7 +302,7 @@ def resolve(ledger: Any) -> BuildPlan:
             )
 
         params = raw.get("parameters") or {}
-        p: dict[str, float] = {}
+        p: dict[str, Any] = {}
         for nm in _SCALARS[kind]:
             v = params.get(nm)
             if v is None:
@@ -244,11 +323,49 @@ def resolve(ledger: Any) -> BuildPlan:
                 )
             p[nm] = fv
 
+        # Extract non-scalar parameters safely
+        if kind in ("edge_fillet", "edge_chamfer"):
+            p["select_all"] = params.get("select_all", False)
+            p["edge_selectors"] = params.get("edge_selectors", [])
+            # Also extract length for backward compatibility of cutter primitive
+            if "length" in params:
+                p["length"] = float(params["length"])
+        elif kind == "shell":
+            p["thickness"] = float(params.get("thickness", 0.0))
+            p["open_faces"] = params.get("open_faces", [])
+        elif kind == "sketch":
+            p["vertices"] = params.get("vertices", [])
+            p["edges"] = params.get("edges", [])
+            p["draft_angle"] = float(params.get("draft_angle", 0.0))
+        elif kind == "revolve":
+            p["vertices"] = params.get("vertices", [])
+            p["angle"] = float(params.get("angle", 360.0))
+        elif kind == "loft":
+            p["sections"] = params.get("sections", [])
+
+
         placement = raw.get("placement") or {}
         origin = _vec3(placement.get("origin"), (0.0, 0.0, 0.0), fid, "placement.origin")
-        rot = _vec3(placement.get("rotation_deg"), (0.0, 0.0, 0.0), fid, "placement.rotation_deg")
+        
+        if kind == "hole" and "direction" in placement:
+            direction = _vec3(placement.get("direction"), (0.0, 0.0, -1.0), fid, "placement.direction")
+            if direction == (0.0, 0.0, 0.0):
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "`direction` cannot be zero", fid)
+            from build123d import Plane
+            # The hole cutter drills into local -Z. To drill along `direction`,
+            # we must orient local +Z to point to `-direction`.
+            inv_dir = [-d for d in direction]
+            try:
+                loc = Plane(origin=(0,0,0), z_dir=inv_dir).location
+                rot = (loc.orientation.X, loc.orientation.Y, loc.orientation.Z)
+            except Exception as e:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, f"Invalid direction vector {direction}: {e}", fid)
+        else:
+            rot = _vec3(placement.get("rotation_deg"), (0.0, 0.0, 0.0), fid, "placement.rotation_deg")
+            
+        relative_to = placement.get("relative_to")
 
-        through, depth = True, None
+        through, depth = False, None
         if kind == "hole":
             through = bool(params.get("through", True))
             if not through:
@@ -265,17 +382,77 @@ def resolve(ledger: Any) -> BuildPlan:
                     raise _err(
                         GeometryErrorCode.INVALID_PARAMETER, f"`depth` must be > 0, got {depth:g}", fid
                     )
+        elif kind in ("box", "cylinder", "cone", "sphere", "torus"):
+            through = bool(params.get("through", False))
+            p["draft_angle"] = float(params.get("draft_angle", 0.0))
+            p["align"] = params.get("align")
+        elif kind == "sketch":
+            p["draft_angle"] = float(params.get("draft_angle", 0.0))
+            p["height"] = float(params.get("height", 0.0))
+            if not p["vertices"] and not p["edges"]:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "sketch requires vertices or edges", fid)
+            if not p["edges"] and (not p["vertices"] or len(p["vertices"]) < 3):
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "sketch requires at least 3 vertices", fid)
+            p["vertices"] = [[float(pt[0]), float(pt[1])] for pt in p["vertices"]]
+            for e in p["edges"]:
+                if not isinstance(e, dict) or "type" not in e:
+                    raise _err(GeometryErrorCode.INVALID_PARAMETER, f"sketch edges must be dicts with 'type', got {e}", fid)
+        elif kind == "extrude":
+            target = params.get("target_feature")
+            if not target:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "extrude requires target_feature", fid)
+            p["target_feature"] = str(target)
+            p["twist"] = float(params.get("twist", 0.0))
+            p["taper"] = float(params.get("taper", 0.0))
+        elif kind == "revolve":
+            p["angle"] = float(params.get("angle", 360.0))
+            p["axis"] = _vec3(params.get("axis"), (0.0, 1.0, 0.0), fid, "axis")
+            verts = params.get("vertices")
+            if not isinstance(verts, list) or len(verts) < 3:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "revolve requires at least 3 vertices", fid)
+            p["vertices"] = [[float(pt[0]), float(pt[1])] for pt in verts]
+        elif kind in ("linear_pattern", "circular_pattern"):
+            target = params.get("target_feature")
+            if not target:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "pattern requires target_feature", fid)
+            p["target_feature"] = str(target)
+            count = int(params.get("count", 2))
+            if count < 2:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "pattern count must be >= 2", fid)
+            p["count"] = count
+            if kind == "linear_pattern":
+                p["axis"] = _vec3(params.get("axis"), (1.0, 0.0, 0.0), fid, "axis")
+                p["count_2"] = int(params.get("count_2", 1))
+                p["spacing_2"] = float(params.get("spacing_2", 0.0))
+                p["axis_2"] = _vec3(params.get("axis_2"), (0.0, 1.0, 0.0), fid, "axis_2")
+            else:
+                p["sweep_angle"] = float(params.get("sweep_angle", 360.0))
+        elif kind == "shell":
+            p["thickness"] = float(params.get("thickness", -1.0))
+            if abs(p["thickness"]) < TOL:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "shell thickness cannot be zero", fid)
 
         gear: GearGeometry | None = None
         if kind == "gear":
             gear = _resolve_gear(params, p, fid)
 
-        op = raw.get("operation") or ("subtract" if kind == "hole" else "add")
+        op = raw.get("operation") or ("modify" if kind == "shell" else "subtract" if kind == "hole" else "add")
         if kind == "hole" and op != "subtract":
             raise _err(
                 GeometryErrorCode.INVALID_PARAMETER, f"a hole cannot have operation={op!r}", fid
             )
-        if op not in ("add", "subtract"):
+        if kind in ("shell", "edge_fillet", "edge_chamfer") and op != "modify":
+            # Topological fillet/chamfer operations modify the existing solid
+            # If length is present, it's a legacy subtractive box cutter.
+            if kind == "shell" or (kind in ("edge_fillet", "edge_chamfer") and "length" not in p):
+                raise _err(
+                    GeometryErrorCode.INVALID_PARAMETER, f"{kind} must have operation='modify' when used topologically", fid
+                )
+        if kind not in ("shell", "edge_fillet", "edge_chamfer") and op == "modify":
+            raise _err(
+                GeometryErrorCode.INVALID_PARAMETER, f"{kind} cannot have operation='modify'", fid
+            )
+        if op not in ("add", "subtract", "modify"):
             raise _err(GeometryErrorCode.INVALID_PARAMETER, f"unknown operation {op!r}", fid)
 
         feats.append(
@@ -286,6 +463,7 @@ def resolve(ledger: Any) -> BuildPlan:
                 name=raw.get("name") or "",
                 origin=origin,
                 rotation_deg=rot,
+                relative_to=relative_to,
                 p=p,
                 through=through,
                 depth=depth,

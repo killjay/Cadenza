@@ -135,8 +135,8 @@ class FakeClient:
         self.payload = payload
         self.calls: list[dict] = []
 
-    async def complete_json(self, *, stage, system, user, schema=None, images=None, **kw):
-        self.calls.append({"stage": stage, "system": system, "user": user})
+    async def complete_json(self, *, stage, agent_card, user, images=None, max_tokens=None, effort=None, context=None, **kw):
+        self.calls.append({"stage": stage, "system": agent_card.system_prompt, "user": user})
         return self.payload
 
 
@@ -266,6 +266,6 @@ async def test_an_unbuildable_gear_fails_with_the_parameter_named():
     if geometry_bridge.REAL_GEOMETRY:
         failed = [f for f in frames if f.type in ("geometry.failed", "error")]
         assert failed, [f.type for f in frames]
-        assert "point" in failed[0].message.lower()
+        assert "point" in str(failed[0].detail).lower()
         # Failed build => full rollback. ARCHITECTURE.md §6.
         assert session.store.ledger.revision == 0
