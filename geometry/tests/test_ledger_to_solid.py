@@ -165,10 +165,11 @@ def test_glb_nodes_are_named_with_ledger_feature_ids():
     glb, _ = ledger_to_glb_step(plate_with_hole())
     gltf, _ = parse_glb(glb)
     names = {n["name"] for n in gltf["nodes"]}
-    assert names == {"feat_base_plate_9f2a", "feat_bore_1a2b"}
+    assert "feat_base_plate_9f2a_top_face" in names
+    assert "feat_bore_1a2b_bore" in names
     by_name = {n["name"]: n["extras"] for n in gltf["nodes"]}
-    assert by_name["feat_bore_1a2b"]["labels"] == ["bore"]
-    assert "top_face" in by_name["feat_base_plate_9f2a"]["labels"]
+    assert by_name["feat_bore_1a2b_bore"]["label"] == "bore"
+    assert by_name["feat_base_plate_9f2a_top_face"]["label"] == "top_face"
 
 
 def test_glb_geometry_lands_in_the_right_place_after_the_y_up_swap():

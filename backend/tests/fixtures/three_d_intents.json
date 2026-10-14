@@ -1,0 +1,15 @@
+{
+  "description": "Offline proposals for the 100x100x20 plate with a diameter-10 through bore. Expected volumes are constant + pi_coefficient*pi, authored independently.",
+  "cases": [
+    {"id":"move_bore","target":"hole","prompt":"Move this bore to source-local x=10 mm","operations":[{"op":"set_origin","feature_id":"$target","axis":"x","value":10}],"constant":200000,"pi_coefficient":-500},
+    {"id":"suppress_bore","target":"hole","prompt":"Suppress the selected bore","operations":[{"op":"set_suppressed","feature_id":"$target","suppressed":true}],"constant":200000,"pi_coefficient":0},
+    {"id":"restore_bore","target":"hole","initial_suppressed":true,"prompt":"Restore the selected bore","operations":[{"op":"set_suppressed","feature_id":"$target","suppressed":false}],"constant":200000,"pi_coefficient":-500},
+    {"id":"remove_bore","target":"hole","prompt":"Remove the selected bore","operations":[{"op":"remove_feature","feature_id":"$target"}],"constant":200000,"pi_coefficient":0},
+    {"id":"add_box","target":null,"prompt":"Add a 20 by 10 by 5 mm box at source origin (60,0,0), zero rotation","operations":[{"op":"add_feature","kind":"box","name":"Tab","operation":"add","parameters":{"length":20,"width":10,"height":5},"placement":{"origin":[60,0,0],"rotation_deg":[0,0,0]}}],"constant":201000,"pi_coefficient":-500},
+    {"id":"add_cylinder","target":null,"prompt":"Add a diameter 6 height 10 mm cylinder at (25,0,20), zero rotation","operations":[{"op":"add_feature","kind":"cylinder","name":"Boss","operation":"add","parameters":{"diameter":6,"height":10},"placement":{"origin":[25,0,20],"rotation_deg":[0,0,0]}}],"constant":200000,"pi_coefficient":-410},
+    {"id":"through_hole","target":null,"prompt":"Add one through hole diameter 6 mm at opening (25,25,20), zero rotation","operations":[{"op":"add_feature","kind":"hole","name":"Mount","operation":"subtract","parameters":{"diameter":6,"through":true,"depth":null},"placement":{"origin":[25,25,20],"rotation_deg":[0,0,0]}}],"constant":200000,"pi_coefficient":-680},
+    {"id":"blind_hole","target":null,"prompt":"Add one blind hole diameter 6 depth 4 mm at opening (25,25,20), zero rotation","operations":[{"op":"add_feature","kind":"hole","name":"Blind bore","operation":"subtract","parameters":{"diameter":6,"through":false,"depth":4},"placement":{"origin":[25,25,20],"rotation_deg":[0,0,0]}}],"constant":200000,"pi_coefficient":-536},
+    {"id":"subtract_box","target":null,"prompt":"Subtract a 10 by 10 by 5 mm box at (25,25,0), zero rotation","operations":[{"op":"add_feature","kind":"box","name":"Pocket","operation":"subtract","parameters":{"length":10,"width":10,"height":5},"placement":{"origin":[25,25,0],"rotation_deg":[0,0,0]}}],"constant":199500,"pi_coefficient":-500},
+    {"id":"subtract_cylinder","target":null,"prompt":"Subtract a diameter 6 height 10 mm cylinder at (25,25,10), zero rotation","operations":[{"op":"add_feature","kind":"cylinder","name":"Cutter","operation":"subtract","parameters":{"diameter":6,"height":10},"placement":{"origin":[25,25,10],"rotation_deg":[0,0,0]}}],"constant":200000,"pi_coefficient":-590}
+  ]
+}

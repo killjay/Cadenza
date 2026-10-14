@@ -7,8 +7,9 @@ calling this.
 
 from __future__ import annotations
 
-from build123d import Location
-from OCP.gp import gp_Dir, gp_Pnt
+from math import radians
+from build123d import Location, Vector
+from OCP.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf
 
 from cadenza_geometry.plan import BuildPlan, RFeature
 
@@ -36,3 +37,22 @@ def dir_to_world(loc: Location, d: tuple[float, float, float]) -> tuple[float, f
     dr = gp_Dir(*d)
     dr.Transform(loc.wrapped.Transformation())
     return (dr.X(), dr.Y(), dr.Z())
+
+
+def pattern_locations(f: RFeature, plan: BuildPlan) -> list[Location]:
+    """Additional copies only; retain legacy resolved frames and sweep/count."""
+    loc = feature_location(f, plan)
+    count = int(f.p["count"])
+    if f.kind == "linear_pattern":
+        axis = Vector(dir_to_world(loc, f.p["axis"]))
+        axis2 = Vector(dir_to_world(loc, f.p.get("axis_2", (0, 1, 0))))
+        return [Location(axis * f.p["spacing"] * i + axis2 * f.p.get("spacing_2", 0) * j)
+                for i in range(count) for j in range(int(f.p.get("count_2", 1))) if i or j]
+    axis = gp_Ax1(gp_Pnt(*to_world(loc, (0, 0, 0))),
+                  gp_Dir(*dir_to_world(loc, f.p.get("axis", (0, 0, 1)))))
+    result = []
+    for i in range(1, count):
+        transform = gp_Trsf()
+        transform.SetRotation(axis, radians(f.p["sweep_angle"] * i / count))
+        result.append(Location(transform))
+    return result

@@ -20,7 +20,7 @@ from __future__ import annotations
 from build123d import Face, Shape
 
 from cadenza_geometry.contracts import SpatialHit, SpatialQuery
-from cadenza_geometry.plan import BuildPlan
+from cadenza_geometry.plan import AssemblyPlan, BuildPlan
 from cadenza_geometry.provenance import Spec
 from cadenza_geometry.plan import RFeature
 
@@ -93,9 +93,9 @@ def _normal_at(face: Face, point: tuple[float, float, float]) -> tuple[float, fl
 
 
 def probe(
-    plan: BuildPlan,
+    plan: BuildPlan | AssemblyPlan,
     faces: list[Face],
-    attribution: dict[int, tuple[RFeature, Spec]],
+    attribution: dict[int, tuple[str | None, RFeature, Spec]],
     ambiguity: dict[int, list[str]],
     query: SpatialQuery,
     solid: Shape | None = None,
@@ -108,6 +108,8 @@ def probe(
     if not ranked:
         return None
     ranked.sort(key=lambda r: r[0])
+    if isinstance(plan, AssemblyPlan) and ranked[0][1] not in attribution:
+        return None  # Never jump from an unnamed assembly face to another part.
 
     # Walk outward to the nearest face we can actually name. An unattributed
     # face is useless to the agent layer -- it has no ledger node to patch --
@@ -132,6 +134,8 @@ def probe(
         if want != (0.0, 0.0, 0.0):
             aligned = [
                 r for r in named
+                if (not isinstance(plan, AssemblyPlan) or attribution[r[1]][0] == attribution[chosen[1]][0]
+                    or r[0] - ranked[0][0] < AMBIGUITY_BAND)
                 if _dot(_unit(_normal_at(faces[r[1]], r[2])), want) >= NORMAL_AGREEMENT
             ]
             if aligned:
@@ -143,7 +147,7 @@ def probe(
     if query.max_distance is not None and dist > query.max_distance:
         return None
 
-    feat, spec = attribution[idx]
+    comp_id, feat, spec = attribution[idx]
     face = faces[idx]
     # At the HIT POINT, not at the centroid: on a bore the normal swings a full
     # 360 degrees around the axis, so a centroid normal would point the
@@ -157,17 +161,18 @@ def probe(
     # (a) Is the pick decisive? A runner-up from a DIFFERENT feature within the
     # ambiguity band is the case that bites, because the wrong ledger node gets
     # patched and the user sees an edit land somewhere they did not click.
-    for rdist, ridx, _ in named[1:]:
+    for rdist, ridx, _ in named:
         if ridx not in attribution:
             continue
-        rfeat, _rspec = attribution[ridx]
-        if rfeat.id == feat.id:
+        _rcomp, rfeat, _rspec = attribution[ridx]
+        if (_rcomp, rfeat.id) == (comp_id, feat.id):
             continue
         gap = rdist - dist
         if gap < AMBIGUITY_BAND:
             confidence = min(confidence, max(0.0, gap / AMBIGUITY_BAND) * 0.5 + 0.5)
-            if rfeat.id not in rivals:
-                rivals.append(rfeat.id)
+            rival = f"{_rcomp}:{rfeat.id}" if _rcomp else rfeat.id
+            if rival not in rivals:
+                rivals.append(rival)
             notes.append(f"within {AMBIGUITY_BAND}mm of a face from {rfeat.id}")
         break
 
@@ -195,6 +200,7 @@ def probe(
             notes.append("recorded normal overrode a nearer but differently-oriented face")
 
     return SpatialHit(
+        component_id=comp_id,
         feature_id=feat.id,
         label=spec.label,
         distance=dist,

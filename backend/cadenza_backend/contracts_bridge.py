@@ -44,8 +44,8 @@ def _real_import_works() -> bool:
 def _locate_package_dir() -> Path:
     """Find the on-disk `cadenza_contracts/` directory."""
     candidates = [Path(p) / "cadenza_contracts" for p in sys.path if p]
-    # Fall back to the monorepo layout: <repo>/cadenza/{backend,contracts}/
-    candidates.append(Path(__file__).resolve().parents[3] / "contracts" / "cadenza_contracts")
+    # Fall back to the monorepo layout: <repo>/shared/
+    candidates.append(Path(__file__).resolve().parents[2] / "shared" / "cadenza_contracts")
     for candidate in candidates:
         if (candidate / "ledger.py").is_file():
             return candidate
@@ -92,6 +92,18 @@ from cadenza_contracts.ledger import (  # noqa: E402
     GearParameters,
     HoleFeature,
     HoleParameters,
+    ThreadedHoleFeature,
+    ThreadedHoleParameters,
+    FastenerFeature,
+    FastenerParameters,
+    ShellFeature,
+    ShellParameters,
+    RevolveFeature,
+    RevolveParameters,
+    ExtrudeFeature,
+    ExtrudeParameters,
+    LoftFeature,
+    LoftParameters,
     Ledger,
     Metadata,
     Placement,
@@ -123,10 +135,22 @@ __all__ = [
     "CylinderFeature",
     "HoleFeature",
     "GearFeature",
+    "ThreadedHoleFeature",
+    "FastenerFeature",
     "BoxParameters",
     "CylinderParameters",
     "HoleParameters",
     "GearParameters",
+    "ThreadedHoleParameters",
+    "FastenerParameters",
+    "ShellFeature",
+    "ShellParameters",
+    "RevolveFeature",
+    "RevolveParameters",
+    "ExtrudeFeature",
+    "ExtrudeParameters",
+    "LoftFeature",
+    "LoftParameters",
     "Placement",
     "TargetRef",
     "AIContext",

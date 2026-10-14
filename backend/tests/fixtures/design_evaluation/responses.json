@@ -1,0 +1,773 @@
+{
+  "NP01/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "box",
+          "name": "Stock",
+          "operation": "add",
+          "parameters": {
+            "length": 20,
+            "width": 10,
+            "height": 5
+          },
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    },
+    {
+      "kind": "proposal",
+      "description": "Edit accepted new source",
+      "operations": [
+        {
+          "op": "set_dimension",
+          "feature_id": "feat_created_stock",
+          "parameter": "height",
+          "value": 6
+        }
+      ],
+      "assumptions": []
+    },
+    {
+      "kind": "proposal",
+      "description": "Assemble accepted source",
+      "assumptions": [],
+      "operations": [
+        {
+          "op": "initialize_assembly",
+          "name": "Sequence assembly"
+        },
+        {
+          "op": "add_instance",
+          "source_ledger_id": "created",
+          "name": "Created instance",
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "proposal",
+      "description": "Selected instance edit",
+      "assumptions": [],
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_created",
+          "placement": {
+            "origin": [
+              30,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "proposal",
+      "description": "Selected instance edit",
+      "assumptions": [],
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_created",
+          "placement": {
+            "origin": [
+              40,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "NP01/small": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "box",
+          "name": "Stock",
+          "operation": "add",
+          "parameters": {
+            "length": 12,
+            "width": 10,
+            "height": 5
+          },
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "NP01/large": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "box",
+          "name": "Stock",
+          "operation": "add",
+          "parameters": {
+            "length": 30,
+            "width": 10,
+            "height": 5
+          },
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "NP02/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "cylinder",
+          "name": "Stock",
+          "operation": "add",
+          "parameters": {
+            "diameter": 10,
+            "height": 8
+          },
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "NP03/base": [
+    {
+      "kind": "clarification",
+      "question": "What length, width, height and placement?"
+    }
+  ],
+  "NP04/base": [
+    {
+      "kind": "unsupported",
+      "reason": "Create and Apply stock first, then add a pattern."
+    }
+  ],
+  "SP01/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_dimension",
+          "feature_id": "feat_stock",
+          "parameter": "height",
+          "value": 10
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP02/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "hole",
+          "name": "Seed",
+          "operation": "subtract",
+          "parameters": {
+            "diameter": 6,
+            "through": true,
+            "depth": null
+          },
+          "placement": {
+            "origin": [
+              20,
+              0,
+              8
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP03/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_linear_pattern",
+          "name": "Row",
+          "target_feature": "feat_seed",
+          "count": 3,
+          "spacing": 10,
+          "direction": "-x"
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP03/two": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_linear_pattern",
+          "name": "Row",
+          "target_feature": "feat_seed",
+          "count": 2,
+          "spacing": 10,
+          "direction": "-x"
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP03/four": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_linear_pattern",
+          "name": "Row",
+          "target_feature": "feat_seed",
+          "count": 4,
+          "spacing": 10,
+          "direction": "-x"
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP04/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_circular_pattern",
+          "name": "Circle",
+          "target_feature": "feat_seed",
+          "count": 4,
+          "center_xy": [
+            0,
+            0
+          ]
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP05/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_dimension",
+          "feature_id": "feat_stock",
+          "parameter": "height",
+          "value": 10
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "SP06/base": [
+    {
+      "kind": "clarification",
+      "question": "Which feature and dimension should change, and to what value?"
+    }
+  ],
+  "AS01/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "initialize_assembly",
+          "name": "Started"
+        },
+        {
+          "op": "add_instance",
+          "source_ledger_id": "source_0",
+          "name": "First",
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS02/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_instance",
+          "source_ledger_id": "source_0",
+          "name": "Extra",
+          "placement": {
+            "origin": [
+              400,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS03/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_c",
+          "placement": {
+            "origin": [
+              105,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              90
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS03/near": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_c",
+          "placement": {
+            "origin": [
+              110,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              90
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS03/far": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_c",
+          "placement": {
+            "origin": [
+              130,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              90
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS04/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "duplicate_instance",
+          "component_id": "comp_first",
+          "name": "Third",
+          "placement": {
+            "origin": [
+              400,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS05/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_rigid_joint",
+          "component_a": "comp_a",
+          "component_b": "comp_b",
+          "target_a": {
+            "point": [
+              0,
+              0,
+              4
+            ],
+            "normal": null
+          },
+          "target_b": {
+            "point": [
+              30,
+              0,
+              0
+            ],
+            "normal": null
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS06/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "remove_joint",
+          "joint_id": "joint_existing"
+        },
+        {
+          "op": "add_rigid_joint",
+          "component_a": "comp_a",
+          "component_b": "comp_b",
+          "target_a": {
+            "point": [
+              0,
+              0,
+              5
+            ],
+            "normal": null
+          },
+          "target_b": {
+            "point": [
+              30,
+              0,
+              0
+            ],
+            "normal": null
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS07/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "remove_joint",
+          "joint_id": "joint_existing"
+        },
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_b",
+          "placement": {
+            "origin": [
+              35,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS08/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "remove_joint",
+          "joint_id": "joint_existing"
+        },
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_b",
+          "placement": {
+            "origin": [
+              35,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS09/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "create_subassembly",
+          "name": "New module",
+          "instance_name": "New module instance",
+          "placement": {
+            "origin": [
+              400,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          },
+          "children": [
+            {
+              "source_ledger_id": "source_0",
+              "name": "Child",
+              "placement": {
+                "origin": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_deg": [
+                  0,
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "AS10/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_instance_placement",
+          "component_id": "comp_c",
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "IMG01/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "add_feature",
+          "kind": "box",
+          "name": "Stock",
+          "operation": "add",
+          "parameters": {
+            "length": 20,
+            "width": 10,
+            "height": 5
+          },
+          "placement": {
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "IMG02/base": [
+    {
+      "kind": "proposal",
+      "description": "Authored offline proposal",
+      "operations": [
+        {
+          "op": "set_dimension",
+          "feature_id": "feat_stock",
+          "parameter": "height",
+          "value": 10
+        }
+      ],
+      "assumptions": []
+    }
+  ],
+  "IMG03/base": [
+    {
+      "kind": "clarification",
+      "question": "What length, width, height and placement?"
+    }
+  ],
+  "IMG04/base": [
+    {
+      "kind": "clarification",
+      "question": "The drawing says 20 mm length, but the text says 30 mm. Which is correct?"
+    }
+  ]
+}

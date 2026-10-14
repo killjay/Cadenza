@@ -32,7 +32,7 @@ export const COLORS = {
   axisX: 0x9c4b5c,
   axisY: 0x4b7a4f,
   edge: 0x0d0f13,
-  highlight: 0x78c2ff,
+  highlight: 0xff00ff,
 } as const;
 
 export interface Viewport {

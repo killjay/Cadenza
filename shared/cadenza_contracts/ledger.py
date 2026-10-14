@@ -9,20 +9,23 @@ INVARIANTS (enforced here, relied on everywhere):
   * `revision` is monotonic and is bumped ONLY by the server, and ONLY when a
     patch applied AND the geometry rebuilt successfully. A revision that exists
     has been built. Agents may not patch it (see patch.FORBIDDEN_PATHS).
-  * No topological ids (face_7, edge_12) are EVER stored. Selection is by
-    coordinate — see TargetRef. This is how we sidestep the topological naming
-    problem (blueprint section 7).
-  * Every numeric field is a literal number. There is no expression language in
-    milestone 1 — "width = length - 2*inset" is deferred, deliberately.
+  * No kernel face/edge ordinals are stored as persistent selectors. TargetRef
+    describes coordinate picks; surface_references stores supported semantic
+    primitive roles and may explicitly become unresolved after geometry edits.
+  * Feature inputs remain numeric. Part-local relationships are validated and
+    materialized from bounded, unit-checked arithmetic before geometry builds.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from cadenza_contracts.ids import new_project_id
+from cadenza_contracts.surface_reference import ReferenceId, SurfaceReference
+from cadenza_contracts.parameters import Relationships, materialize
+from cadenza_contracts.profiles import ProfileParameters
 
 SCHEMA_VERSION = 1
 MAX_FEATURES = 64
@@ -127,7 +130,7 @@ class _FeatureBase(_Model):
     name: str = ""
     suppressed: bool = False
     placement: Placement = Field(default_factory=Placement)
-    target: TargetRef | None = None
+    targets: list[TargetRef] = Field(default_factory=list)
     ai_context: AIContext = Field(default_factory=AIContext)
 
 
@@ -210,11 +213,13 @@ class TorusParameters(_Model):
 
 
 class EdgeFilletParameters(_Model):
+    target_feature: str | None = Field(default=None, pattern=FEATURE_ID_PATTERN)
     length: Positive
     radius: Positive
 
 
 class EdgeChamferParameters(_Model):
+    target_feature: str | None = Field(default=None, pattern=FEATURE_ID_PATTERN)
     length: Positive
     width: Positive
 
@@ -229,16 +234,72 @@ class LinearPatternParameters(_Model):
 class CircularPatternParameters(_Model):
     target_feature: str = Field(pattern=FEATURE_ID_PATTERN)
     count: int = Field(ge=2)
-    radius: Positive
+    radius: Positive  # Compatibility hint; actual radius comes from seed placement and center.
     sweep_angle: float = 360.0
+    axis: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 1.0])  # Historical builder uses local Z; C1 admits +Z only.
 
 
 Vec2 = tuple[float, float]
 
 class SketchParameters(_Model):
     vertices: list[Vec2] = Field(min_length=3)
-    height: Positive
+    height: float = Field(default=0, ge=0, allow_inf_nan=False)
     draft_angle: float = 0.0
+
+
+class ThreadedHoleParameters(_Model):
+    designation: str  # e.g. "M8"
+    pitch: float | None = None
+    diameter: Positive  # The tap drill size
+    through: bool = True
+    depth: Positive | None = None
+
+    @model_validator(mode="after")
+    def _depth_rules(self) -> ThreadedHoleParameters:
+        if not self.through and self.depth is None:
+            raise ValueError("a blind threaded hole (through=false) requires `depth`")
+        return self
+
+
+class FastenerParameters(_Model):
+    designation: str  # e.g. "M8"
+    diameter: Positive
+    length: Positive
+    head_type: Literal["socket", "hex", "flat", "button"] = "socket"
+
+
+class ShellParameters(_Model):
+    target_feature: str | None = Field(default=None, pattern=FEATURE_ID_PATTERN)
+    thickness: float
+    open_faces: list[str] = Field(default_factory=list)
+
+
+class RevolveParameters(_Model):
+    vertices: list[Vec2] = Field(min_length=3)
+    angle: float = 360.0
+    axis: Vec3 = Field(default_factory=lambda: [0.0, 1.0, 0.0])
+
+
+class ExtrudeParameters(_Model):
+    target_feature: str = Field(pattern=FEATURE_ID_PATTERN)
+    amount: float
+    taper: float = 0.0
+    twist: float = 0.0
+
+
+class EdgeDict(_Model):
+    type: str
+    p1: Vec2
+    p2: Vec2
+    p3: Vec2 | None = None
+
+class LoftSection(_Model):
+    vertices: list[Vec2] | None = None
+    edges: list[EdgeDict] | None = None
+    placement: Placement | None = None
+
+class LoftParameters(_Model):
+    sections: list[LoftSection] = Field(min_length=2)
 
 
 # --------------------------------------------------------------------------- #
@@ -306,6 +367,12 @@ class SketchFeature(_FeatureBase):
     parameters: SketchParameters
 
 
+class ProfileFeature(_FeatureBase):
+    kind: Literal["profile"] = "profile"
+    operation: Literal["add"] = "add"
+    parameters: ProfileParameters
+
+
 class LinearPatternFeature(_FeatureBase):
     kind: Literal["linear_pattern"] = "linear_pattern"
     operation: Literal["add", "subtract"] = "add"
@@ -316,6 +383,42 @@ class CircularPatternFeature(_FeatureBase):
     kind: Literal["circular_pattern"] = "circular_pattern"
     operation: Literal["add", "subtract"] = "add"
     parameters: CircularPatternParameters
+
+
+class ThreadedHoleFeature(_FeatureBase):
+    kind: Literal["threaded_hole"] = "threaded_hole"
+    operation: Literal["subtract"] = "subtract"
+    parameters: ThreadedHoleParameters
+
+
+class FastenerFeature(_FeatureBase):
+    kind: Literal["fastener"] = "fastener"
+    operation: Literal["add"] = "add"
+    parameters: FastenerParameters
+
+
+class ShellFeature(_FeatureBase):
+    kind: Literal["shell"] = "shell"
+    operation: Literal["modify"] = "modify"
+    parameters: ShellParameters
+
+
+class RevolveFeature(_FeatureBase):
+    kind: Literal["revolve"] = "revolve"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: RevolveParameters
+
+
+class ExtrudeFeature(_FeatureBase):
+    kind: Literal["extrude"] = "extrude"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: ExtrudeParameters
+
+
+class LoftFeature(_FeatureBase):
+    kind: Literal["loft"] = "loft"
+    operation: Literal["add", "subtract"] = "add"
+    parameters: LoftParameters
 
 
 Feature = Annotated[
@@ -330,17 +433,84 @@ Feature = Annotated[
         EdgeFilletFeature,
         EdgeChamferFeature,
         SketchFeature,
+        ProfileFeature,
         LinearPatternFeature,
         CircularPatternFeature,
+        ThreadedHoleFeature,
+        FastenerFeature,
+        ShellFeature,
+        RevolveFeature,
+        ExtrudeFeature,
+        LoftFeature,
     ],
     Field(discriminator="kind"),
 ]
 
-FEATURE_KINDS = ("box", "cylinder", "hole", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "linear_pattern", "circular_pattern")
+FEATURE_KINDS = ("box", "cylinder", "hole", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "profile", "linear_pattern", "circular_pattern", "threaded_hole", "fastener", "shell", "revolve", "extrude", "loft")
 
 # --------------------------------------------------------------------------- #
 # the ledger
 # --------------------------------------------------------------------------- #
+
+class Part(_Model):
+    id: str = Field(pattern=r"^part_[a-z0-9_]{1,60}$")
+    name: str = "Untitled Part"
+    features: list[Feature] = Field(default_factory=list, max_length=MAX_FEATURES)
+
+    @field_validator("features")
+    @classmethod
+    def _unique_ids(cls, v: list[Feature]) -> list[Feature]:
+        seen: set[str] = set()
+        for f in v:
+            if f.id in seen:
+                raise ValueError(f"duplicate feature id: {f.id}")
+            seen.add(f.id)
+        return v
+
+    @model_validator(mode="after")
+    def _first_feature_is_additive(self) -> Part:
+        live = [f for f in self.features if not f.suppressed]
+        if live and live[0].operation != "add":
+            raise ValueError("the first live feature must have operation='add'")
+        return self
+
+
+class Component(_Model):
+    id: str = Field(pattern=r"^comp_[a-z0-9_]{1,60}$")
+    name: str = ""
+    part_id: str | None = None
+    catalog_sku: str | None = None
+    sub_assembly_id: str | None = None
+    placement: Placement = Field(default_factory=Placement)
+
+    @model_validator(mode="after")
+    def _must_have_source(self) -> Component:
+        sources = sum(bool(x) for x in (self.part_id, self.catalog_sku, self.sub_assembly_id))
+        if sources != 1:
+            raise ValueError("Component must reference exactly one of: part_id, catalog_sku, or sub_assembly_id")
+        return self
+
+
+class Joint(_Model):
+    """Targets use assembly coordinates after placement, before solving joints.
+
+    Runtime currently supports rigid directed attachments: A anchors B. Supply
+    both outward normals to oppose them, or neither for translation only.
+    Initial placement supplies twist. Motion, closed loops and feature-bound
+    anchors are not implemented and are rejected by the geometry layer.
+    """
+    id: str = Field(pattern=r"^joint_[a-z0-9_]{1,60}$")
+    kind: Literal["rigid", "revolute", "cylindrical", "slider", "ball"]
+    component_a: str = Field(pattern=r"^comp_[a-z0-9_]{1,60}$")
+    component_b: str = Field(pattern=r"^comp_[a-z0-9_]{1,60}$")
+    target_a: TargetRef
+    target_b: TargetRef
+
+
+class Assembly(_Model):
+    parts: list[Part] = Field(default_factory=list)
+    components: list[Component] = Field(default_factory=list)
+    joints: list[Joint] = Field(default_factory=list)
 
 
 class Ledger(_Model):
@@ -348,7 +518,26 @@ class Ledger(_Model):
     project_id: str = Field(default_factory=new_project_id)
     revision: int = Field(default=0, ge=0)
     metadata: Metadata = Field(default_factory=Metadata)
+    relationships: Relationships = Field(default_factory=Relationships)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_relationships(cls, data: Any) -> Any:
+        resolved = materialize(data)
+        if resolved is not data:
+            # Assignment validation does not revalidate untouched fields.
+            resolved["features"] = TypeAdapter(list[Feature]).validate_python(resolved["features"])
+        return resolved
+    
+    # Old mode (Single Part)
     features: list[Feature] = Field(default_factory=list, max_length=MAX_FEATURES)
+    
+    # New mode (Assembly)
+    assembly: Assembly | None = None
+
+    # Saved annotations, not build dependencies: deletion/suppression may leave
+    # these unresolved. Resolution is checked against the rebuilt geometry.
+    surface_references: dict[ReferenceId, SurfaceReference] = Field(default_factory=dict, max_length=64)
 
     @field_validator("features")
     @classmethod

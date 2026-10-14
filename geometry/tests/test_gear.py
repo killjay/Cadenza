@@ -259,7 +259,7 @@ def test_a_click_on_a_tooth_flank_resolves_to_the_gear(svc):
     flank = next(
         f
         for i, f in enumerate(built.faces)
-        if built.attribution.get(i) and built.attribution[i][1].label == "tooth_flank"
+        if built.attribution.get(i) and built.attribution[i][2].label == "tooth_flank"
     )
     centre = flank.center()
     hit = svc.probe_point_legacy(doc, (centre.X, centre.Y, centre.Z))
@@ -278,7 +278,7 @@ def test_the_solid_has_exactly_as_many_teeth_as_asked_for(teeth, svc):
     that dropped or doubled a tooth would still satisfy most of them.
     """
     built = svc._compile(gear_with_bore(teeth=teeth, bore=4.0))
-    labels = Counter(spec.label for _, spec in built.attribution.values())
+    labels = Counter(spec.label for _, _, spec in built.attribution.values())
     assert labels["tooth_tip"] == teeth
     assert labels["tooth_root"] == teeth
     # Two involute flanks a tooth, plus the two radial relief faces when the
@@ -291,7 +291,7 @@ def test_a_gear_without_root_relief_has_only_its_involute_flanks(svc):
     """Past the relief limit the radial faces are gone, so the flank count
     halves. Pins that `needs_root_relief` reaches the solid, not just the maths."""
     built = svc._compile(gear_with_bore(module=1.0, teeth=42, height=5.0, bore=10.0))
-    labels = Counter(spec.label for _, spec in built.attribution.values())
+    labels = Counter(spec.label for _, _, spec in built.attribution.values())
     assert labels["tooth_tip"] == 42
     assert labels["tooth_flank"] == 42 * 2
 

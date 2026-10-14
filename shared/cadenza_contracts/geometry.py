@@ -125,6 +125,7 @@ class SpatialHit(_Model):
     point: Vec3                       # snapped onto the exact B-rep surface
     normal: Vec3 | None = None        # outward, for faces
     distance_mm: float                # query point -> snapped point
+    component_id: str | None = None   # which component produced it (if assembly)
     feature_id: str | None = None     # which ledger feature produced it
     feature_name: str | None = None
     feature_kind: str | None = None   # one of ledger.FEATURE_KINDS

@@ -76,7 +76,7 @@ Neither dev may add a field to it locally.
 ## 2. Shape of the system
 
 ```
-browser (Dev C)                    server (Dev A)                geometry (Dev B)
+browser (Dev C)                    backend (Dev A)               geometry (Dev B)
 ──────────────                     ──────────────                ────────────────
 React + Three.js                   FastAPI /ws                   build123d
   │  user.prompt {prompt, target}     │                            │
@@ -84,8 +84,12 @@ React + Three.js                   FastAPI /ws                   build123d
   │                                   │ probe(ledger, point) ─────►│  reverse
   │                                   │◄──────── SpatialHit ───────┤  spatial lookup
   │                                   │                            │
-  │                                   │ Machinist(prompt, hit,     │
-  │                                   │           ledger) → patch  │
+  │                                   │ LangGraph (StateGraph)     │
+  │                                   │ ├─ Architect (routes)      │
+  │                                   │ ├─ Librarian (finds parts) │
+  │                                   │ ├─ Draftsman/Machinist/    │
+  │                                   │ │  Assembler → ops         │
+  │                                   │ └─ Build & Review          │
   │                                   │ apply_patch() → Ledger'    │
   │                                   │ build(Ledger') ───────────►│  translate +
   │                                   │◄──── BuildResult(glb,step)─┤  export in memory
@@ -95,9 +99,15 @@ React + Three.js                   FastAPI /ws                   build123d
 ```
 
 One WebSocket. Text frames are the JSON control plane; binary frames carry GLB
-and STEP bytes. Geometry is an **in-process function call**, not a service — no
-queue, no container, no serialisation of the ledger to a subprocess. It can
-become a service later precisely because the interface is a `Protocol`.
+and STEP bytes. Runtime builds and probes execute in **bounded subprocesses**
+through `geometry_jobs`: ledger snapshots cross a private JSON file boundary,
+the parent awaits results and owns design acceptance, and timed-out or cancelled
+children are killed and reaped. Defaults are two concurrent jobs and a 20-second
+deadline including startup; capacity saturation returns BUSY without queuing.
+Healthy children persist across jobs with a four-entry dependency-content cache
+and best-effort project affinity. They recycle after 100 jobs by default
+(GEOMETRY_WORKER_MAX_JOBS); failed children are discarded and shutdown reaps the
+pool. The synchronous geometry library remains the implementation inside each child.
 
 ### Module map
 
@@ -105,7 +115,7 @@ become a service later precisely because the interface is a `Protocol`.
 |---|---|---|---|
 | `shared/cadenza_contracts/` | Architect | Ledger, patch semantics + apply, geometry `Protocol`, every WS frame, error codes, golden fixtures | pydantic, jsonpatch |
 | `shared/ts/` | Architect | TypeScript mirror of the same, plus the binary frame decoder | nothing |
-| `server/` | **Dev A** | FastAPI app, `/ws` handler, session + revision store, coordinator, Draftsman, Machinist, LLM client | `cadenza_contracts`, `cadenza_geometry` (via the Protocol only) |
+| `backend/` | **Dev A** | FastAPI app, `/ws` handler, session store, LangGraph orchestrator, Agents (Architect, Draftsman, Machinist, Librarian, Assembler) | `cadenza_contracts`, `cadenza_geometry` (via the Protocol only) |
 | `geometry/` | **Dev B** | Ledger→build123d translator, GLB/STEP export, spatial lookup, face attribution | `cadenza_contracts`, build123d |
 | `web/` | **Dev C** | React app, Three.js viewport, WS client, Point & Speak UI, feature tree | `@cadenza/shared` |
 
@@ -115,21 +125,17 @@ Nobody edits `shared/`.** A contract that is wrong gets fixed once, here.
 ### The turn, exactly
 
 1. `user.prompt` arrives. If a turn is already running for this session → `BUSY`.
-   If `base_revision` is stale → `REVISION_CONFLICT`. (Serialised per session;
-   there is no merge story and a prototype does not need one.)
-2. **Coordinator** — a rule, not an LLM call: `target` present → Machinist;
-   ledger empty → Draftsman; otherwise → Machinist with no hit. Spending a model
-   call and 800 ms on a three-line `if` is how prototypes get slow.
-3. If `target`: `geometry.probe()` → `SpatialHit`, whose `descriptor` goes into
-   the prompt verbatim. The user and the model read the same sentence.
-4. Agent returns `AgentPatchOutput` (structured output — a malformed response is
-   an API-level error, not a parsing guess).
-5. `apply_patch(ledger, ops)` → new `Ledger`, **revision unchanged**.
-6. `geometry.build(new_ledger)`.
-7. Success → bump revision, snapshot, emit `ledger.updated` + `geometry.ready` +
-   binary frames. Failure → **discard the new ledger entirely** and emit
-   `geometry.failed`. There is no state in which the ledger has advanced but the
-   geometry has not: a revision that exists has been built.
+   If `base_revision` is stale → `REVISION_CONFLICT`.
+2. **LangGraph Setup** — Resolves spatial hits and attaches Engineer heuristics (smart defaults) to the prompt.
+3. **Architect Node** — A fast routing step that determines the intent (Edit vs. Draft vs. Assembly).
+4. **Specialist Node** — The flow delegates to a specialist agent:
+   - `Librarian` / `Assembler`: Sources standard catalog parts and synthesizes joints.
+   - `Draftsman`: Generates the raw initial geometry.
+   - `Machinist`: Patches existing geometry based on spatial hits.
+5. **Build Node** — `apply_patch(ledger, ops)` and `geometry.build(new_ledger)`.
+6. **Review Node** — 
+   - Success → bump revision, snapshot, emit `ledger.updated` + `geometry.ready` + binary frames.
+   - Failure → Feed the CAD error back into the agent loop up to 3 times to self-correct. If it fails permanently, emit `geometry.failed`.
 
 ---
 
@@ -150,8 +156,8 @@ twice as thick", watch it rebuild.**
 | 6 | Click point → `probe()` → `SpatialHit` with `feature_id` + `descriptor` | B |
 | 7 | Machinist → RFC 6902 patch → rebuild → new GLB swapped in | A |
 
-Vocabulary: `box`, `cylinder`, `hole`, `gear`. That is enough for milestone 1 and
-its obvious neighbours ("add a second hole", "make it round").
+Vocabulary: `box`, `cylinder`, `hole`, `gear`, standard fasteners (via `Librarian`), and `assemblies` (components + joints). That is enough for milestone 1 and
+its obvious neighbours ("add a second hole", "bolt these together").
 
 `gear` is the one that proves the widening claim above, so it is worth saying
 what it actually cost: a schema entry, a translator branch, and one new module
@@ -171,13 +177,12 @@ Machinist prompt has to distinguish them.
 | **Manufacturing intent, tolerance classes** | Explicitly out of scope. The ledger fields exist and stay `null`; nothing reads them |
 | **occt-wasm in the browser** | See §4 — deferred, and milestone 1 does not depend on it |
 | ~~Sketch/photo upload, vision~~ | **Now IN — built ahead of schedule. See §7** |
-| Fillets, chamfers, shells, patterns, revolves | Vocabulary is 3 kinds |
+| Fillets, chamfers, shells, revolves | Not part of the current vocabulary. |
 | Expression/parametric relations | Numbers only |
 | Undo/redo UI | Server snapshots every revision; no buttons yet |
 | Persistence, accounts, multi-user | One in-memory session per connection. Restart = new part |
 | STEP download button | The bytes reach the client; a save button is 20 minutes whenever it is wanted |
 | Optimistic local transforms | See §4 |
-| LangGraph | See §4 |
 
 ---
 
@@ -188,10 +193,10 @@ Machinist prompt has to distinguish them.
 | §3 Draftsman emits a build123d script | **Rejected** | §1. The whole architecture turns on this |
 | §1/§4/§5 `occt-wasm` worker does the raycast against STEP | **Deferred past M1** | Three.js already raycasts the GLB and gives a world-space point; the server then snaps that point to the exact B-rep and answers with the *authoritative* entity. Shipping occt-wasm in M1 buys sub-100 ms hover latency at the cost of a multi-MB WASM bundle, a Comlink worker, a second STEP parser and a second source of truth about what the user clicked. Do it later as a **latency cache in front of an unchanged contract** — `spatial.probe` stays the fallback and stays authoritative |
 | §1 AG-UI protocol | **Rejected as a dependency** | Our message set is AG-UI-shaped (`message_id` correlation, phase events, streamed artifacts) but defined in `shared/messages.py` where we can change it in a minute. Adopting a spec to move JSON between two processes we both own is cost without benefit |
-| §1 LangGraph | **Deferred** | Four "agents" of which two are live in M1, routed by an `if`. A graph framework earns its keep at cyclic multi-turn planning; we have a linear pipeline. Direct SDK calls, one function per agent. Revisit when there is a real loop |
+| §1 LangGraph | **Adopted** | The pipeline now features cyclic multi-turn planning (if a CAD build fails, it loops back up to 3 times to fix it). It orchestrates `Architect`, `Draftsman`, `Machinist`, `Librarian`, and `Assembler`. |
 | §2 "bitemporal" ledger | **Rejected for M1** | Bitemporality (valid-time *and* transaction-time) answers "what did we believe the part was on Tuesday?" Nobody is asking. We keep a linear list of revision snapshots, which is what undo actually needs |
 | §2 patch path `/objects/obj_base_01/...` vs array `history_tree` | **Resolved** | The ledger stores `features` as an **ordered array**; agents may address a feature **by id**, and `normalize_pointer` rewrites `/features/<id>/…` → `/features/<n>/…`. Best of both: stable addressing for the model, ordered build semantics for the kernel. Unresolvable id ⇒ `PATCH_UNKNOWN_TARGET`, never a silent no-op |
-| §3 Engineer agent (smart defaults) | **Deferred to a dict** | "Fits a wall screw" → `diameter: 4.5` is a lookup table, not an inference. A static dict in `server/agents/defaults.py`, consulted by the other agents. No LLM call, no latency, no nondeterminism |
+| §3 Engineer agent (smart defaults) | **Adopted** | Standardised heuristics and lookup tables are now applied prior to LLM generation via `engineer.py`. No LLM call, no latency, no nondeterminism. |
 | §3 Draftsman vision | **BUILT — see §7** | The prediction held exactly: the agent boundary did not move. An image is a content block on the way in and the output schema is untouched |
 | §5 "rough local transformation" while waiting | **Rejected** | A local guess that disagrees with the rebuild teaches users not to trust the viewport, which is the one thing this product sells. Loading state + phase ticker instead. Rebuild target: under 3 s |
 | §4 STEP → browser to maintain the B-rep | **Kept, unused in M1** | STEP is exported and sent because it is free once built, and it is the export format users need. Nothing in the browser parses it yet |

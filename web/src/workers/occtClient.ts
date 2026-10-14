@@ -37,6 +37,7 @@ function get(): Comlink.Remote<OcctApi> {
 
 export const occt = {
   boot: (): Promise<BootInfo> => get().boot(),
+  clearModel: (): Promise<void> => proxy ? proxy.clearModel() : Promise.resolve(),
 
   loadStep: (data: ArrayBuffer): Promise<ModelSummary> =>
     get().loadStep(Comlink.transfer(data, [data])),

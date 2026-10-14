@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "CADenza geometry service: JSON ledger -> build123d B-rep -> GLB + STEP, in memory."
 requires-python = ">=3.10"
 dependencies = [
+    "cadenza-contracts>=1.0.0",
     "build123d>=0.11",
 ]
 

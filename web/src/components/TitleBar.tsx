@@ -1,18 +1,28 @@
 import { useRef } from "react";
 import { useStore } from "../lib/store";
-import { occt } from "../workers/occtClient";
+import { ProjectControls } from "./ProjectControls";
 
 /**
  * Top chrome. In the prototype it doubles as the spike's control panel: load a
  * local GLB/STEP pair, or point at the fixtures, without a backend.
  */
 export function TitleBar() {
+  const sourceView = useStore(s => s.sourceView);
+  const sourceLoading = useStore(s => s.sourceLoading);
   const model = useStore((s) => s.model);
   const showGrid = useStore((s) => s.showGrid);
   const showEdges = useStore((s) => s.showEdges);
   const toggleGrid = useStore((s) => s.toggleGrid);
   const toggleEdges = useStore((s) => s.toggleEdges);
   const say = useStore((s) => s.say);
+  const undoSession = useStore((s) => s.undoSession);
+  const sessionId = useStore((s) => s.sessionId);
+  const busy = useStore((s) => s.busy);
+  const preview = useStore((s) => s.preview);
+  const draft = useStore((s) => s.draft);
+  const canUndo = useStore((s) => s.canUndo);
+  const canRedo = useStore((s) => s.canRedo);
+  const redoSession = useStore((s) => s.redoSession);
 
   const glbInput = useRef<HTMLInputElement>(null);
   const stepInput = useRef<HTMLInputElement>(null);
@@ -22,7 +32,7 @@ export function TitleBar() {
       fetch("/samples/plate.glb").then((r) => r.arrayBuffer()),
       fetch("/samples/plate.step").then((r) => r.arrayBuffer()),
     ]);
-    void useStore.getState().onGeometry({ revision: 1, glb, step });
+    void useStore.getState().onGeometry({ revision: 0, glb, step, source: "local" });
     // Say so out loud. A fixture that arrives in the viewport unannounced is
     // indistinguishable from a part the server just built, and that ambiguity
     // has already cost one debugging session.
@@ -45,32 +55,18 @@ export function TitleBar() {
   async function onGlbPicked(file: File): Promise<void> {
     if (rejectIfImage(file, "GLB")) return;
     const glb = await file.arrayBuffer();
-    window.dispatchEvent(new CustomEvent("cadenza:glb", { detail: { glb, revision: 0 } }));
-    useStore.setState((s) => ({
-      model: {
-        revision: s.model?.revision ?? 0,
-        glbBytes: glb.byteLength,
-        stepBytes: s.model?.stepBytes ?? 0,
-      },
-    }));
+    await useStore.getState().onGeometry({ revision: 0, glb, source: "local" });
     say({ kind: "status", text: `Loaded ${file.name} (${(glb.byteLength / 1024).toFixed(0)} KB).` });
   }
 
   async function onStepPicked(file: File): Promise<void> {
     if (rejectIfImage(file, "STEP")) return;
     const step = await file.arrayBuffer();
-    try {
-      const summary = await occt.loadStep(step);
-      const mesh = await occt.getPickMesh();
-      useStore.setState((s) => ({ model: s.model ? { ...s.model, summary } : s.model }));
-      window.dispatchEvent(new CustomEvent("cadenza:pickmesh", { detail: mesh }));
-      say({
-        kind: "status",
-        text: `Parsed ${file.name}: ${summary.faceCount} faces, ${summary.volume.toFixed(0)} mm³ in ${summary.importMs.toFixed(0)} ms.`,
-      });
-    } catch (err) {
-      say({ kind: "error", text: `STEP parse failed: ${String(err)}` });
+    if (useStore.getState().model?.source !== "local") {
+      say({ kind: "status", text: "Open the matching GLB as a local preview before attaching its STEP file." });
+      return;
     }
+    await useStore.getState().loadStep(step);
   }
 
   const btn =
@@ -84,13 +80,14 @@ export function TitleBar() {
         <span className="ml-1.5 rounded-sm bg-wash px-1 py-px text-9 text-ink-4">prototype</span>
       </span>
 
-      <button className={btn} onClick={() => void loadFixture()}>
+      <ProjectControls />
+      <button className={btn} disabled={!!draft || !!preview || busy} onClick={() => void loadFixture()}>
         Load fixture
       </button>
-      <button className={btn} onClick={() => glbInput.current?.click()}>
+      <button className={btn} disabled={!!draft || !!preview || busy} onClick={() => glbInput.current?.click()}>
         Open GLB…
       </button>
-      <button className={btn} onClick={() => stepInput.current?.click()}>
+      <button className={btn} disabled={!!draft || !!preview || busy} onClick={() => stepInput.current?.click()}>
         Open STEP…
       </button>
 
@@ -99,7 +96,7 @@ export function TitleBar() {
       <button className={showGrid ? btnOn : btn} onClick={toggleGrid} title="G">
         Grid
       </button>
-      <button className={showEdges ? btnOn : btn} onClick={toggleEdges} title="E">
+      <button className={showEdges ? btnOn : btn} onClick={toggleEdges} title="E" disabled={!!draft && !preview}>
         Edges
       </button>
       <button
@@ -110,11 +107,25 @@ export function TitleBar() {
         Fit
       </button>
 
+      <div className="mx-1 h-3.5 w-px bg-hairline-strong" />
+
+      <button className={btn} onClick={() => undoSession()} disabled={sourceLoading || busy || !!draft || !!preview || !canUndo}>
+        Undo
+      </button>
+      <button className={btn} onClick={redoSession} disabled={sourceLoading || busy || !!draft || !!preview || !canRedo}>Redo</button>
+      <button className={btn} onClick={() => { if (sessionId && model) window.open(model.source === "source" ? sourceView?.glb_url ?? undefined : `/sessions/${sessionId}/artifacts/${model.revision}/model.glb`) }} disabled={sourceLoading || !!preview || (model?.source === "source" && !sourceView) || !sessionId || !model || model.source === "local" || model.source === "preview"}>
+        Download GLB
+      </button>
+      <button className={btn} onClick={() => { if (sessionId && model) window.open(model.source === "source" ? sourceView?.step_url ?? undefined : `/sessions/${sessionId}/artifacts/${model.revision}/model.step`) }} disabled={sourceLoading || !!preview || (model?.source === "source" && !sourceView) || !sessionId || !model || model.source === "local" || model.source === "preview"}>
+        Download STEP
+      </button>
+
       <div className="flex-1" />
+      {preview && <span className="text-11 text-accent">Preview — not applied</span>}
 
       {model && (
         <span className="font-mono text-10 text-ink-4">
-          rev {model.revision}
+          {model.source === "local" ? "Local preview" : `rev ${model.revision}`}
           {model.triangleCount ? ` · ${model.triangleCount.toLocaleString()} tris` : ""}
         </span>
       )}

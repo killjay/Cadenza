@@ -47,13 +47,17 @@ CHUNK_BIN = 0x004E4942
 
 @dataclass
 class MeshGroup:
-    """Triangles belonging to one ledger feature."""
+    """Triangles belonging to one ledger feature and semantic side/label."""
 
     name: str
     positions: list[tuple[float, float, float]] = field(default_factory=list)
     normals: list[tuple[float, float, float]] = field(default_factory=list)
     indices: list[int] = field(default_factory=list)
-    labels: set[str] = field(default_factory=set)
+    label: str = ""
+    component_id: str | None = None
+    part_id: str | None = None
+    surface_reference: dict | None = None
+    selection_error: str | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -85,17 +89,12 @@ def tessellate_face(
 
     pts = [(v.X, v.Y, v.Z) for v in verts]
 
-    # OCC's triangulation winding follows the face's own orientation flag,
-    # which a subtraction flips. Rather than trust it, measure: compare the
-    # summed geometric normal against the face's true outward normal.
-    acc = [0.0, 0.0, 0.0]
-    for i0, i1, i2 in tris:
-        n = _tri_normal(pts[i0], pts[i1], pts[i2])
-        acc[0] += n[0]
-        acc[1] += n[1]
-        acc[2] += n[2]
+    # Compare locally: normals summed around a closed cylinder cancel out.
+    # The largest triangle avoids choosing a degenerate seam/pole triangle.
+    triangle = max(tris, key=lambda t: sum(v * v for v in _tri_normal(*(pts[i] for i in t))))
+    acc = _tri_normal(*(pts[i] for i in triangle))
     try:
-        c = face.center()
+        c = tuple(sum(pts[i][axis] for i in triangle) / 3 for axis in range(3))
         ref = face.normal_at(c)
         ref_v = (ref.X, ref.Y, ref.Z)
     except Exception:
@@ -201,7 +200,7 @@ def write_glb(groups: list[MeshGroup], generator: str = "cadenza-geometry") -> b
 
         meshes.append(
             {
-                "name": g.name,
+                "name": f"{g.name}_{g.label}" if g.label else g.name,
                 "primitives": [
                     {
                         "attributes": {"POSITION": pos_acc, "NORMAL": nrm_acc},
@@ -214,11 +213,18 @@ def write_glb(groups: list[MeshGroup], generator: str = "cadenza-geometry") -> b
         )
         nodes.append(
             {
-                "name": g.name,
+                "name": f"{g.name}_{g.label}" if g.label else g.name,
                 "mesh": len(meshes) - 1,
                 # The whole point of the grouping: the ledger id travels with
                 # the render node, so a raycast hit is already semantic.
-                "extras": {"feature_id": g.name, "labels": sorted(g.labels)},
+                "extras": {
+                    "feature_id": g.name,
+                    "label": g.label,
+                    "component_id": g.component_id,
+                    "part_id": g.part_id,
+                    "surface_reference": g.surface_reference,
+                    "selection_error": g.selection_error,
+                },
             }
         )
 

@@ -139,6 +139,7 @@ class SpatialQuery:
 class SpatialHit:
     """The answer to "what did the user click?" — semantic, not topological."""
 
+    component_id: str | None
     feature_id: str
     label: str
     distance: float
@@ -153,10 +154,20 @@ class SpatialHit:
     # the user ("I think you meant the top face, but the part has changed shape
     # since — did you mean ...?").
     notes: tuple[str, ...] = ()
+    source_ledger_id: str | None = None
+    source_part_id: str | None = None
+    feature_name: str | None = None
+    feature_kind: str | None = None
+    source_point: tuple[float, float, float] | None = None
+    source_normal: tuple[float, float, float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The blueprint §5 wire shape, plus the extras the agent layer wants."""
         return {
+            **({"component_id": self.component_id, "source_ledger_id": self.source_ledger_id,
+                "source_part_id": self.source_part_id, "feature_name": self.feature_name,
+                "feature_kind": self.feature_kind, "source_point": self.source_point,
+                "source_normal": self.source_normal} if self.component_id is not None else {}),
             "node_id": self.feature_id,
             "feature": self.label,
             "distance": round(self.distance, 6),

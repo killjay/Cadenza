@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "project_id": "prj_parameters",
+  "features": [
+    {
+      "id": "feat_plate",
+      "name": "Plate",
+      "kind": "box",
+      "operation": "add",
+      "parameters": {
+        "length": 120,
+        "width": 100,
+        "height": 10
+      }
+    },
+    {
+      "id": "feat_hole_0",
+      "name": "Mount 1",
+      "kind": "hole",
+      "operation": "subtract",
+      "parameters": {
+        "diameter": 6,
+        "through": true
+      },
+      "placement": {
+        "origin": [
+          -45,
+          35,
+          10
+        ]
+      }
+    },
+    {
+      "id": "feat_hole_1",
+      "name": "Mount 2",
+      "kind": "hole",
+      "operation": "subtract",
+      "parameters": {
+        "diameter": 6,
+        "through": true
+      },
+      "placement": {
+        "origin": [
+          -45,
+          -35,
+          10
+        ]
+      }
+    },
+    {
+      "id": "feat_hole_2",
+      "name": "Mount 3",
+      "kind": "hole",
+      "operation": "subtract",
+      "parameters": {
+        "diameter": 6,
+        "through": true
+      },
+      "placement": {
+        "origin": [
+          45,
+          35,
+          10
+        ]
+      }
+    },
+    {
+      "id": "feat_hole_3",
+      "name": "Mount 4",
+      "kind": "hole",
+      "operation": "subtract",
+      "parameters": {
+        "diameter": 6,
+        "through": true
+      },
+      "placement": {
+        "origin": [
+          45,
+          -35,
+          10
+        ]
+      }
+    }
+  ],
+  "relationships": {
+    "parameters": {
+      "plate_length": {
+        "unit": "mm",
+        "value": 120
+      },
+      "plate_width": {
+        "unit": "mm",
+        "value": 100
+      },
+      "thickness": {
+        "unit": "mm",
+        "value": 10
+      },
+      "hole_diameter": {
+        "unit": "mm",
+        "value": 6
+      },
+      "edge_margin": {
+        "unit": "mm",
+        "value": 15
+      },
+      "half_x": {
+        "unit": "mm",
+        "expression": "plate_length / 2 - edge_margin"
+      },
+      "half_y": {
+        "unit": "mm",
+        "expression": "plate_width / 2 - edge_margin"
+      }
+    },
+    "bindings": [
+      {
+        "feature_id": "feat_plate",
+        "target": "length",
+        "expression": "plate_length"
+      },
+      {
+        "feature_id": "feat_plate",
+        "target": "width",
+        "expression": "plate_width"
+      },
+      {
+        "feature_id": "feat_plate",
+        "target": "height",
+        "expression": "thickness"
+      },
+      {
+        "feature_id": "feat_hole_0",
+        "target": "diameter",
+        "expression": "hole_diameter"
+      },
+      {
+        "feature_id": "feat_hole_0",
+        "target": "x",
+        "expression": "-half_x"
+      },
+      {
+        "feature_id": "feat_hole_0",
+        "target": "y",
+        "expression": "half_y"
+      },
+      {
+        "feature_id": "feat_hole_0",
+        "target": "z",
+        "expression": "thickness"
+      },
+      {
+        "feature_id": "feat_hole_1",
+        "target": "diameter",
+        "expression": "hole_diameter"
+      },
+      {
+        "feature_id": "feat_hole_1",
+        "target": "x",
+        "expression": "-half_x"
+      },
+      {
+        "feature_id": "feat_hole_1",
+        "target": "y",
+        "expression": "-half_y"
+      },
+      {
+        "feature_id": "feat_hole_1",
+        "target": "z",
+        "expression": "thickness"
+      },
+      {
+        "feature_id": "feat_hole_2",
+        "target": "diameter",
+        "expression": "hole_diameter"
+      },
+      {
+        "feature_id": "feat_hole_2",
+        "target": "x",
+        "expression": "half_x"
+      },
+      {
+        "feature_id": "feat_hole_2",
+        "target": "y",
+        "expression": "half_y"
+      },
+      {
+        "feature_id": "feat_hole_2",
+        "target": "z",
+        "expression": "thickness"
+      },
+      {
+        "feature_id": "feat_hole_3",
+        "target": "diameter",
+        "expression": "hole_diameter"
+      },
+      {
+        "feature_id": "feat_hole_3",
+        "target": "x",
+        "expression": "half_x"
+      },
+      {
+        "feature_id": "feat_hole_3",
+        "target": "y",
+        "expression": "-half_y"
+      },
+      {
+        "feature_id": "feat_hole_3",
+        "target": "z",
+        "expression": "thickness"
+      }
+    ],
+    "constraints": [
+      {
+        "left": "edge_margin",
+        "operator": ">",
+        "right": "hole_diameter / 2",
+        "message": "Edge margin must exceed hole radius"
+      },
+      {
+        "left": "plate_length - 2 * edge_margin",
+        "operator": ">",
+        "right": "hole_diameter",
+        "message": "plate_length must leave distinct holes"
+      },
+      {
+        "left": "plate_width - 2 * edge_margin",
+        "operator": ">",
+        "right": "hole_diameter",
+        "message": "plate_width must leave distinct holes"
+      }
+    ]
+  }
+}

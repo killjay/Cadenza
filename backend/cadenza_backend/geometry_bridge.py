@@ -68,13 +68,14 @@ class BuildOutcome:
     warnings: list[str] = field(default_factory=list)
     code: ErrorCode | None = None
     feature_id: str | None = None
+    empty: bool = False
 
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def build(ledger: Ledger) -> BuildOutcome:
+def build(ledger: Ledger, all_ledgers: dict[str, Any] | None = None) -> BuildOutcome:
     """Build the ledger. Never raises — every failure is a coded `BuildOutcome`."""
     if not REAL_GEOMETRY:
         stubbed = geometry_stub.build(ledger)
@@ -90,7 +91,7 @@ def build(ledger: Ledger) -> BuildOutcome:
         )
 
     try:
-        result = _service.build(ledger)
+        result = _service.build(ledger, all_ledgers=all_ledgers)
     except GeometryError as exc:  # type: ignore[misc]
         # Dev B's enum values are the contract's wire strings by design.
         try:
@@ -147,12 +148,15 @@ class ProbeOutcome:
     distance_mm: float
     confidence: float
     stub: bool
+    component_id: str | None = None
+    ledger_id: str | None = None
 
 
 def probe(
     ledger: Ledger,
     point: list[float] | None,
     normal: list[float] | None = None,
+    all_ledgers: dict[str, Any] | None = None,
 ) -> ProbeOutcome:
     """Resolve a click to the ledger feature that produced the nearest face."""
     from cadenza_backend.spatial_stub import resolve_target
@@ -177,14 +181,35 @@ def probe(
                 ledger,
                 tuple(point),
                 normal=tuple(normal) if normal else None,
+                all_ledgers=all_ledgers,
             )
         except Exception:  # noqa: BLE001 - a probe failure falls back, never 500s
             hit = None
         if hit:
-            feature_id = hit.get("feature_id")
-            label = hit.get("label") or "face"
-            kind = _kind_of(ledger, feature_id)
-            name = _name_of(ledger, feature_id)
+            feature_id = hit.get("node_id")
+            label = hit.get("feature") or "face"
+            kind = hit.get("feature_kind") or _kind_of(ledger, feature_id)
+            name = hit.get("feature_name") or _name_of(ledger, feature_id)
+            component_id = hit.get("component_id")
+            source_context = ""
+            if kind == "extrude":
+                from cadenza_contracts.surface_reference import SurfaceReference
+                from cadenza_backend.profile_selection import profile_context
+                captured = _service.run_probe_query(ledger, {"query_type": "capture_surface_reference",
+                    "point": list(hit.get("point_on_face") or point), "normal": hit.get("normal")}, all_ledgers=all_ledgers)
+                if captured.get("status") != "resolved":
+                    return ProbeOutcome(feature_id=None, feature_name=None, feature_kind=None,
+                        descriptor="Selected extrusion surface is ambiguous or unsupported. Ask for a precise supported selection; do not guess.",
+                        point=list(point), normal=normal, distance_mm=0, confidence=0, stub=False)
+                source_context = profile_context(SurfaceReference.model_validate(captured["reference"]), all_ledgers or {ledger.project_id: ledger})
+            if component_id:
+                source_context += (
+                    f" Instance path: {component_id}. Source ledger: {hit.get('source_ledger_id')}; "
+                    f"source part: {hit.get('source_part_id') or 'single-part ledger'}. "
+                    f"Source-local point: {hit.get('source_point')}; normal: {hit.get('source_normal')}. "
+                    "Editing source geometry changes every instance of that source; instance-only placement edits belong to the assembly component. "
+                    f"Selection confidence: {hit.get('confidence')}. Ask for clarification if ambiguous."
+                )
             # The descriptor goes verbatim into the model's prompt AND the user's
             # selection chip, so an unresolved kind must read as a word, not "None".
             described = name or kind or "that feature"
@@ -196,14 +221,20 @@ def probe(
                 descriptor=(
                     f"The user clicked the {label.replace('_', ' ')} of feature "
                     f'`{feature_id}` ("{described}"{of_kind}). Treat that feature as '
-                    "the subject of the instruction unless the wording clearly points elsewhere."
+                    "the subject of the instruction unless the wording clearly points elsewhere." + source_context
                 ),
                 point=list(hit.get("point_on_face") or point),
                 normal=list(hit.get("normal")) if hit.get("normal") else normal,
                 distance_mm=float(hit.get("distance") or 0.0),
-                confidence=float(hit.get("confidence") or 1.0),
+                confidence=float(hit["confidence"]) if hit.get("confidence") is not None else 1.0,
                 stub=False,
+                component_id=component_id,
             )
+
+        if ledger.assembly is not None:
+            return ProbeOutcome(feature_id=None, feature_name=None, feature_kind=None,
+                descriptor="No assembly face could be identified reliably. Ask the user to select a part; do not guess a feature.",
+                point=list(point), normal=normal, distance_mm=0.0, confidence=0.0, stub=False)
 
     resolution = resolve_target(ledger, point)
     return ProbeOutcome(
@@ -234,13 +265,13 @@ def _name_of(ledger: Ledger, feature_id: str | None) -> str | None:
     feature = _feature(ledger, feature_id)
     return (feature.name or None) if feature else None
 
-def run_geometry_probe(ledger: Ledger, query: dict) -> dict:
+def run_geometry_probe(ledger: Ledger, query: dict, all_ledgers: dict[str, Any] | None = None) -> dict:
     """Passes a structured geometry probe query to the CAD engine."""
     if not REAL_GEOMETRY:
         return {"error": "No geometry engine available."}
         
     try:
-        return _service.run_probe_query(ledger, query)
+        return _service.run_probe_query(ledger, query, all_ledgers=all_ledgers)
     except Exception as exc:
         return {"error": f"Kernel failed to execute probe query: {type(exc).__name__} - {str(exc)}"}
 

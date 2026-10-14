@@ -137,6 +137,10 @@ class FakeClient:
 
     async def complete_json(self, *, stage, agent_card, user, images=None, max_tokens=None, effort=None, context=None, **kw):
         self.calls.append({"stage": stage, "system": agent_card.system_prompt, "user": user})
+        if stage == "architect":
+            return {"is_assembly": False, "is_edit": False, "bom": [], "summary": "draftsman expected"}
+        if stage == "librarian":
+            return {"queries": [], "summary": "none"}
         return self.payload
 
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { TitleBar } from "./components/TitleBar";
 import { Viewport } from "./components/Viewport";
+import { SketchWorkspace } from "./components/SketchWorkspace";
 
 import { SidePane } from "./components/SidePane";
 import { StatusBar } from "./components/StatusBar";
@@ -9,6 +10,7 @@ import { useStore } from "./lib/store";
 export default function App() {
   const bootKernel = useStore((s) => s.bootKernel);
   const connect = useStore((s) => s.connect);
+  const draft = useStore((s) => s.draft);
 
   useEffect(() => {
     // Boot the kernel immediately — 4.5 MB brotli has to be on the wire before
@@ -27,7 +29,7 @@ export default function App() {
       <main className="grid min-h-0 grid-cols-[minmax(0,1fr)_290px]">
         <div className="relative min-h-0">
           <Viewport />
-
+          {draft && <SketchWorkspace key={draft.id} />}
         </div>
         <SidePane />
       </main>

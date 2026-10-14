@@ -145,6 +145,11 @@ function indexFaces(k: OcctKernel, s: ShapeHandle): void {
 }
 
 const api = {
+  clearModel(): void {
+    kernel?.releaseAll();
+    shape = null;
+    facesByHash = new Map();
+  },
   /** Boots the kernel. Call early — it is ~4.5 MB brotli over the wire. */
   async boot(): Promise<BootInfo> {
     await getKernel();
@@ -172,7 +177,7 @@ const api = {
     // STEP import yields a compound; unwrap to the solid so face indices are
     // the part's, not the container's.
     const solids = k.getSubShapes(imported, "solid");
-    shape = solids[0] ?? imported;
+    shape = solids.length === 1 ? solids[0]! : imported;
 
     indexFaces(k, shape);
 

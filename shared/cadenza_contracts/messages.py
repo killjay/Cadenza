@@ -27,17 +27,33 @@ import base64
 import binascii
 import json
 import struct
+import time
+from enum import Enum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from cadenza_contracts.errors import ErrorCode
-from cadenza_contracts.geometry import BBox, BuildStats, Ray, SpatialHit
-from cadenza_contracts.ledger import Ledger, Vec3
-from cadenza_contracts.patch import PatchOp
+from cadenza_contracts.geometry import BBox
+from cadenza_contracts.ledger import Assumption, Ledger, Vec3
 from cadenza_contracts.version import CONTRACT_VERSION
+from cadenza_contracts.surface_reference import SavedSurfaceTarget, SurfaceReference
+from cadenza_contracts.sketch_draft import DraftStart, DraftUpdate, DraftAction, DraftState, DraftClosed, DraftPrompt, DraftProposalDecision, DraftProposal
+from cadenza_contracts.assembly_commands import AssemblyCommand, AssemblyCapabilitiesRequest, AssemblyCapabilitiesResponse
+from cadenza_contracts.assembly_commands import (AssemblyPromptTarget, ComponentId, StrictModel,
+    AssemblyPromptCapabilitiesRequest, AssemblyPromptCapabilitiesResponse)
+from cadenza_contracts.part_commands import (PartRequest, PartCreate, PartViewRequest, PartViewReady,
+    PartCapabilitiesRequest, PartCapabilitiesResponse)
+from cadenza_contracts.design_commands import DesignCommand
+from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse
+from cadenza_contracts.feature_capabilities import PatternCapabilitiesRequest, PatternCapabilitiesResponse
 
 PROTOCOL_VERSION = CONTRACT_VERSION
+
+MAX_PROMPT_CHARS = 4000
+MAX_PATCH_OPS = 32
+MAX_FEATURES = 64
+BUILD_TIMEOUT_S = 20.0
 
 
 class _Msg(BaseModel):
@@ -60,11 +76,44 @@ class Target(_Msg):
     point: Vec3
     normal: Vec3 | None = None
     ray: Ray | None = None
+    saved_reference: SavedSurfaceTarget | None = None
+    surface_reference: SurfaceReference | None = None
+
+    @model_validator(mode="after")
+    def _one_identity(self) -> Target:
+        if self.saved_reference is not None and self.surface_reference is not None:
+            raise ValueError("Select either a saved reference or a surface identity")
+        return self
+
+
+class Ray(_Msg):
+    origin: Vec3
+    direction: Vec3
+
+
+class EntityRef(_Msg):
+    kind: str
+    index: int
+    revision: int
+
+
+class SpatialHit(_Msg):
+    entity: EntityRef | None = None
+    point: Vec3
+    normal: Vec3 | None = None
+    distance_mm: float
+    component_id: str | None = None
+    feature_id: str | None = None
+    feature_name: str | None = None
+    feature_kind: str | None = None
+    descriptor: str = ""
+    area_mm2: float | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class ClientHello(_Msg):
     type: Literal["client.hello"] = "client.hello"
-    contract_version: str = CONTRACT_VERSION
+    contract_version: str
     session_id: str | None = None  # resume an existing session, else None
 
 
@@ -122,10 +171,12 @@ class UserPrompt(_Msg):
 
     type: Literal["user.prompt"] = "user.prompt"
     message_id: str
-    prompt: str = Field(min_length=1, max_length=4000)
-    target: Target | None = None
-    base_revision: int | None = None  # stale => REVISION_CONFLICT, turn refused
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    targets: list[Target] = Field(default_factory=list)
+    base_revision: int | None = Field(default=None, ge=0)
+    active_ledger_ids: list[str] = Field(default_factory=list)
     images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
+    preview: bool = False
 
     def decoded_images(self) -> list[tuple[str, bytes]]:
         """`(media_type, bytes)` pairs — the shape the agent layer consumes."""
@@ -142,6 +193,70 @@ class SpatialProbe(_Msg):
     prefer: Literal["face", "edge", "vertex", "any"] = "face"
 
 
+class DesignPrompt(_Msg):
+    type: Literal["design.prompt"] = "design.prompt"
+    message_id: str = Field(min_length=1, max_length=200)
+    base_revision: int = Field(strict=True, ge=0)
+    ledger_id: str = Field(min_length=1, max_length=200)
+    feature_id: str | None = Field(default=None, pattern=r"^feat_[a-z0-9_]{1,60}$")
+    scope: Literal["source"]
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
+
+    @field_validator("prompt")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Describe the intended addition or edit")
+        return value
+
+
+class AssemblyPrompt(StrictModel):
+    type: Literal["design.assembly.prompt"] = "design.assembly.prompt"
+    message_id: str = Field(min_length=1, max_length=200)
+    base_revision: int = Field(ge=0)
+    ledger_id: str = Field(min_length=1, max_length=200)
+    scope: Literal["assembly_definition"]
+    owner_path: list[ComponentId] = Field(max_length=8)
+    target: AssemblyPromptTarget
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
+
+    @field_validator("prompt")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Describe the intended assembly change")
+        return value
+
+
+class PartPrompt(PartRequest):
+    type: Literal["design.part.prompt"] = "design.part.prompt"
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
+
+    @field_validator("prompt")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Describe the new part")
+        return value
+
+
+class PromptCapabilitiesRequest(_Msg):
+    type: Literal["design.prompt.capabilities"] = "design.prompt.capabilities"
+    message_id: str = Field(min_length=1, max_length=200)
+
+
+class PromptCapabilitiesResponse(_Msg):
+    type: Literal["design.prompt.capabilities"] = "design.prompt.capabilities"
+    message_id: str
+    session_id: str
+    version: Literal[1] = 1
+    scope: Literal["source"] = "source"
+    max_operations: Literal[32] = 32
+
+
 class LedgerRequest(_Msg):
     """Resync after a dropped frame. Server replies with `ledger.updated`."""
 
@@ -149,18 +264,111 @@ class LedgerRequest(_Msg):
     message_id: str
 
 
+class LedgerCreate(_Msg):
+    type: Literal["ledger.create"] = "ledger.create"
+    message_id: str
+    name: str = "Untitled Part"
+    base_revision: int | None = Field(default=None, ge=0)
+
+
 class SessionReset(_Msg):
     type: Literal["session.reset"] = "session.reset"
     message_id: str
+    name: str = "Untitled Part"
+
+
+class SessionUndo(_Msg):
+    type: Literal["session.undo"] = "session.undo"
+    message_id: str
+    revision: int | None = Field(default=None, ge=0)
+    base_revision: int | None = Field(default=None, ge=0)
 
 
 class Ping(_Msg):
     type: Literal["ping"] = "ping"
-    t: float
+    t: float = Field(default_factory=time.time)
+
+
+class SessionRedo(_Msg):
+    type: Literal["session.redo"] = "session.redo"
+    message_id: str
+    base_revision: int | None = Field(default=None, ge=0)
+
+
+class ParameterEdit(_Msg):
+    type: Literal["design.parameter"] = "design.parameter"
+    message_id: str
+    base_revision: int = Field(ge=0)
+    ledger_id: str = Field(min_length=1, max_length=200)
+    feature_id: str = Field(pattern=r"^feat_[a-z0-9_]{1,60}$")
+    parameter: Literal["length", "width", "height", "diameter", "depth", "amount"]
+    value: float = Field(gt=0, allow_inf_nan=False)
+
+
+class SketchDimensionEdit(_Msg):
+    type: Literal["design.sketch_dimension"] = "design.sketch_dimension"
+    message_id: str
+    base_revision: int = Field(ge=0)
+    ledger_id: str = Field(min_length=1, max_length=200)
+    feature_id: str = Field(pattern=r"^feat_[a-z0-9_]{1,60}$")
+    constraint_id: str = Field(pattern=r"^con_[a-z0-9_]{1,48}$")
+    value: float = Field(allow_inf_nan=False, ge=-1e6, le=1e6)
+
+
+class NamedParameterEdit(_Msg):
+    type: Literal["design.named_parameter"] = "design.named_parameter"
+    message_id: str
+    base_revision: int = Field(ge=0)
+    ledger_id: str = Field(min_length=1, max_length=200)
+    parameter: str = Field(pattern=r"^[a-z][a-z0-9_]{0,47}$")
+    value: float = Field(allow_inf_nan=False, ge=-1e9, le=1e9)
+
+
+class PreviewDecision(_Msg):
+    type: Literal["design.preview_decision"] = "design.preview_decision"
+    message_id: str
+    base_revision: int = Field(ge=0)
+    preview_id: str = Field(min_length=1, max_length=100)
+    action: Literal["apply", "cancel"]
+
+
+class ClientLog(_Msg):
+    type: Literal["client.log"] = "client.log"
+    message_id: str | None = None
+    level: str
+    message: str
+    data: dict[str, Any] | None = None
 
 
 ClientMessage = Annotated[
-    Union[ClientHello, UserPrompt, SpatialProbe, LedgerRequest, SessionReset, Ping],
+    Union[
+        AssemblyCommand, AssemblyCapabilitiesRequest, AssemblyPrompt, AssemblyPromptCapabilitiesRequest,
+        PartCreate, PartPrompt, PartViewRequest, PartCapabilitiesRequest,
+        ClientHello,
+        UserPrompt,
+        SpatialProbe,
+        LedgerRequest,
+        LedgerCreate,
+        SessionReset,
+        SessionUndo,
+        SessionRedo,
+        Ping,
+        ClientLog,
+        ParameterEdit,
+        NamedParameterEdit,
+        SketchDimensionEdit,
+        PreviewDecision,
+        DraftStart,
+        DraftUpdate,
+        DraftAction,
+        DraftPrompt,
+        DraftProposalDecision,
+        DesignCommand,
+        CapabilitiesRequest,
+        PatternCapabilitiesRequest,
+        DesignPrompt,
+        PromptCapabilitiesRequest,
+    ],
     Field(discriminator="type"),
 ]
 
@@ -171,10 +379,11 @@ ClientMessage = Annotated[
 
 
 class Limits(_Msg):
-    max_prompt_chars: int = 4000
-    max_patch_ops: int = 32
-    max_features: int = 64
-    build_timeout_s: float = 20.0
+    max_prompt_chars: int = MAX_PROMPT_CHARS
+    max_patch_ops: int = MAX_PATCH_OPS
+    max_features: int = MAX_FEATURES
+    build_timeout_s: float = BUILD_TIMEOUT_S
+    startup_timeout_s: float = Field(default=60.0, gt=0, le=600, allow_inf_nan=False)
     max_images: int = MAX_IMAGES
     max_image_bytes: int = MAX_IMAGE_BYTES
 
@@ -183,20 +392,26 @@ class SessionReady(_Msg):
     type: Literal["session.ready"] = "session.ready"
     session_id: str
     contract_version: str = CONTRACT_VERSION
-    ledger: Ledger
+    store: dict[str, Ledger]
+    revision: int = 0
+    can_undo: bool = False
+    can_redo: bool = False
+    project_id: str | None = None
+    project_name: str = "Untitled Part"
+    saved_revision: int | None = None
     limits: Limits = Field(default_factory=Limits)
+    primary_ledger_id: str | None = None
     agents_available: bool = True  # False => no API key; UI shows a banner
 
 
-AgentPhase = Literal[
-    "routing",     # coordinator picking an agent
-    "locating",    # reverse spatial lookup (Point & Speak only)
-    "thinking",    # LLM call in flight
-    "patching",    # validating + applying the patch
-    "building",    # build123d
-    "exporting",   # GLB / STEP
-    "done",
-]
+class AgentPhase(str, Enum):
+    ROUTING = "routing"
+    LOCATING = "locating"
+    THINKING = "thinking"
+    PATCHING = "patching"
+    BUILDING = "building"
+    EXPORTING = "exporting"
+    DONE = "done"
 
 
 class AgentStatus(_Msg):
@@ -205,8 +420,8 @@ class AgentStatus(_Msg):
     type: Literal["agent.status"] = "agent.status"
     message_id: str
     phase: AgentPhase
-    detail: str | None = None
-    elapsed_ms: int | None = None
+    detail: str = ""
+    elapsed_ms: int = 0
 
 
 class AgentMessage(_Msg):
@@ -215,7 +430,7 @@ class AgentMessage(_Msg):
     type: Literal["agent.message"] = "agent.message"
     message_id: str
     text: str
-    assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    assumptions: list[Assumption] = Field(default_factory=list)
     needs_clarification: bool = False
 
 
@@ -223,33 +438,50 @@ class LedgerUpdated(_Msg):
     """The ledger changed AND the geometry rebuilt. Both, or neither."""
 
     type: Literal["ledger.updated"] = "ledger.updated"
-    message_id: str | None = None
+    message_id: str
+    ledger_id: str | None = None
     revision: int
-    ledger: Ledger
-    patch: list[PatchOp] = Field(default_factory=list)  # what got applied, for the UI diff
+    store: dict[str, Ledger]
+    can_undo: bool = False
+    can_redo: bool = False
+    patch: list[dict[str, Any]] = Field(default_factory=list)
     summary: str = ""
 
 
 ArtifactKind = Literal["glb", "step"]
 
 
-class BlobDescriptor(_Msg):
+class BlobRef(_Msg):
     artifact: ArtifactKind
-    content_type: str            # "model/gltf-binary" | "application/step"
+    content_type: str
     bytes: int
     sha256: str
-    url: str | None = None       # HTTP fallback, e.g. "/artifacts/{rev}/model.step"
+    url: str
+
+
+# Compatibility name retained for existing shared-package consumers.
+BlobDescriptor = BlobRef
+
+
+class BuildStats(_Msg):
+    bbox: dict[str, list[float]] | None = None
+    volume_mm3: float | None = None
+    face_count: int | None = None
+    build_ms: float | None = None
+    export_ms: float | None = None
 
 
 class GeometryReady(_Msg):
     """Manifest declaring the binary frames that follow."""
 
     type: Literal["geometry.ready"] = "geometry.ready"
-    message_id: str | None = None
+    message_id: str
     revision: int
-    blobs: list[BlobDescriptor]
-    stats: BuildStats
+    blobs: list[BlobRef] = Field(default_factory=list)
+    stats: BuildStats = Field(default_factory=BuildStats)
     warnings: list[str] = Field(default_factory=list)
+    stub: bool = False
+    empty: bool = False
 
 
 class GeometryFailed(_Msg):
@@ -257,7 +489,7 @@ class GeometryFailed(_Msg):
     ROLLED BACK; `current_revision` is what the client is still showing."""
 
     type: Literal["geometry.failed"] = "geometry.failed"
-    message_id: str | None = None
+    message_id: str
     current_revision: int
     code: ErrorCode
     message: str
@@ -280,14 +512,53 @@ class ErrorMessage(_Msg):
     recoverable: bool = True
 
 
+class PreviewChange(_Msg):
+    ledger_id: str
+    path: str
+    before: Any = None
+    after: Any = None
+
+
+class PreviewReady(_Msg):
+    type: Literal["design.preview"] = "design.preview"
+    message_id: str
+    preview_id: str
+    base_revision: int
+    summary: str
+    prompt: str = ""
+    changes: list[PreviewChange]
+    checks: list[str]
+    assumptions: list[Assumption] = Field(default_factory=list)
+    glb_url: str | None = None
+    step_url: str | None = None
+    empty: bool = False
+    display_ledger_id: str | None = None
+    source_glb_url: str | None = None
+    source_step_url: str | None = None
+    source_empty: bool = False
+    draft_id: str | None = None
+    draft_revision: int | None = None
+
+
+class PreviewClosed(_Msg):
+    type: Literal["design.preview_closed"] = "design.preview_closed"
+    message_id: str
+    preview_id: str
+
+
 class Pong(_Msg):
     type: Literal["pong"] = "pong"
-    t: float
+    t: float = Field(default_factory=time.time)
 
 
 ServerMessage = Annotated[
     Union[
+        AssemblyCapabilitiesResponse, AssemblyPromptCapabilitiesResponse,
+        PartViewReady, PartCapabilitiesResponse,
         SessionReady,
+        CapabilitiesResponse,
+        PatternCapabilitiesResponse,
+        PromptCapabilitiesResponse,
         AgentStatus,
         AgentMessage,
         LedgerUpdated,
@@ -296,6 +567,11 @@ ServerMessage = Annotated[
         SpatialResult,
         ErrorMessage,
         Pong,
+        PreviewReady,
+        PreviewClosed,
+        DraftState,
+        DraftClosed,
+        DraftProposal,
     ],
     Field(discriminator="type"),
 ]
@@ -366,8 +642,15 @@ def decode_blob_frame(frame: bytes) -> tuple[BlobHeader, bytes]:
 
 
 __all__ = [
+    "AssemblyCommand", "AssemblyCapabilitiesRequest", "AssemblyCapabilitiesResponse",
+    "AssemblyPrompt", "AssemblyPromptCapabilitiesRequest", "AssemblyPromptCapabilitiesResponse",
+    "PartCreate", "PartPrompt", "PartViewRequest", "PartViewReady",
+    "PartCapabilitiesRequest", "PartCapabilitiesResponse",
     "PROTOCOL_VERSION",
     "Target",
+    "Ray",
+    "EntityRef",
+    "SpatialHit",
     "ClientHello",
     "InlineImage",
     "ImageMediaType",
@@ -376,9 +659,21 @@ __all__ = [
     "UserPrompt",
     "SpatialProbe",
     "LedgerRequest",
+    "LedgerCreate",
     "SessionReset",
+    "SessionUndo",
+    "SessionRedo",
     "Ping",
+    "ClientLog",
     "ClientMessage",
+    "DesignCommand",
+    "CapabilitiesRequest",
+    "CapabilitiesResponse",
+    "PatternCapabilitiesRequest",
+    "PatternCapabilitiesResponse",
+    "DesignPrompt",
+    "PromptCapabilitiesRequest",
+    "PromptCapabilitiesResponse",
     "Limits",
     "SessionReady",
     "AgentPhase",
@@ -386,7 +681,9 @@ __all__ = [
     "AgentMessage",
     "LedgerUpdated",
     "ArtifactKind",
+    "BlobRef",
     "BlobDescriptor",
+    "BuildStats",
     "GeometryReady",
     "GeometryFailed",
     "SpatialResult",

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "units": "mm",
+  "description": "Synthetic Stage A geometry; expected volume is constant + pi_coefficient * pi. No AI-generated expectations.",
+  "ledgers": {
+    "proj_plate": {
+      "project_id": "proj_plate", "metadata": {"name": "Bored base plate"},
+      "features": [
+        {"id": "feat_plate", "kind": "box", "parameters": {"length": 100, "width": 60, "height": 8}},
+        {"id": "feat_bore", "kind": "hole", "parameters": {"diameter": 10, "through": true}, "placement": {"origin": [20, -10, 8]}}
+      ]
+    },
+    "proj_spacer": {
+      "project_id": "proj_spacer", "metadata": {"name": "Tubular spacer"},
+      "features": [
+        {"id": "feat_spacer", "kind": "cylinder", "parameters": {"diameter": 20, "height": 12}},
+        {"id": "feat_bore", "kind": "hole", "parameters": {"diameter": 10, "through": true}, "placement": {"origin": [0, 0, 12]}}
+      ]
+    },
+    "proj_shaft": {
+      "project_id": "proj_shaft", "metadata": {"name": "Stepped bored shaft"},
+      "features": [
+        {"id": "feat_shoulder", "kind": "cylinder", "parameters": {"diameter": 20, "height": 30}},
+        {"id": "feat_stem", "kind": "cylinder", "parameters": {"diameter": 12, "height": 20}, "placement": {"origin": [0, 0, 30]}},
+        {"id": "feat_bore", "kind": "hole", "parameters": {"diameter": 6, "through": true}, "placement": {"origin": [0, 0, 50]}}
+      ]
+    },
+    "proj_block": {
+      "project_id": "proj_block", "metadata": {"name": "Bearing block with blind bore"},
+      "features": [
+        {"id": "feat_block", "kind": "box", "parameters": {"length": 40, "width": 30, "height": 20}},
+        {"id": "feat_bore", "kind": "hole", "parameters": {"diameter": 10, "through": false, "depth": 8}, "placement": {"origin": [0, 0, 20]}}
+      ]
+    },
+    "proj_support": {"project_id": "proj_support", "features": [{"id": "feat_support", "kind": "box", "parameters": {"length": 20, "width": 20, "height": 16}}]},
+    "proj_cap": {"project_id": "proj_cap", "features": [{"id": "feat_cap", "kind": "box", "parameters": {"length": 100, "width": 20, "height": 8}}]},
+    "proj_pin": {"project_id": "proj_pin", "features": [{"id": "feat_pin", "kind": "cylinder", "parameters": {"diameter": 6, "height": 8}}]},
+    "proj_support_pair": {
+      "project_id": "proj_support_pair", "assembly": {"components": [
+        {"id": "comp_left", "sub_assembly_id": "proj_support", "placement": {"origin": [-30, 0, 8]}},
+        {"id": "comp_right", "sub_assembly_id": "proj_support", "placement": {"origin": [30, 0, 8]}}
+      ]}
+    },
+    "proj_fixture": {
+      "project_id": "proj_fixture", "metadata": {"name": "Nested rigid fixture"},
+      "assembly": {
+        "components": [
+          {"id": "comp_base", "sub_assembly_id": "proj_plate"},
+          {"id": "comp_supports", "sub_assembly_id": "proj_support_pair"},
+          {"id": "comp_cap", "sub_assembly_id": "proj_cap", "placement": {"origin": [0, 0, 24]}},
+          {"id": "comp_pin_a", "sub_assembly_id": "proj_pin", "placement": {"origin": [-40, -20, 8]}},
+          {"id": "comp_pin_b", "sub_assembly_id": "proj_pin", "placement": {"origin": [40, -20, 8]}},
+          {"id": "comp_pin_c", "sub_assembly_id": "proj_pin", "placement": {"origin": [-40, 20, 8]}},
+          {"id": "comp_pin_d", "sub_assembly_id": "proj_pin", "placement": {"origin": [40, 20, 8]}}
+        ],
+        "joints": [
+          {"id": "joint_supports", "kind": "rigid", "component_a": "comp_base", "component_b": "comp_supports", "target_a": {"point": [0, 0, 8]}, "target_b": {"point": [0, 0, 8]}},
+          {"id": "joint_cap", "kind": "rigid", "component_a": "comp_base", "component_b": "comp_cap", "target_a": {"point": [0, 0, 24]}, "target_b": {"point": [0, 0, 24]}}
+        ]
+      }
+    }
+  },
+  "cases": [
+    {"id": "plate", "primary": "proj_plate", "sources": ["proj_plate"], "expected": {"constant": 48000, "pi_coefficient": -200, "bbox": [-50, -30, 0, 50, 30, 8], "solid_count": 1, "feature_count": 2, "bores": [[20, -10, 5]]}},
+    {"id": "spacer", "primary": "proj_spacer", "sources": ["proj_spacer"], "expected": {"constant": 0, "pi_coefficient": 900, "bbox": [-10, -10, 0, 10, 10, 12], "solid_count": 1, "feature_count": 2, "bores": [[0, 0, 5]]}},
+    {"id": "shaft", "primary": "proj_shaft", "sources": ["proj_shaft"], "expected": {"constant": 0, "pi_coefficient": 3270, "bbox": [-10, -10, 0, 10, 10, 50], "solid_count": 1, "feature_count": 3, "bores": [[0, 0, 3]]}},
+    {"id": "block", "primary": "proj_block", "sources": ["proj_block"], "expected": {"constant": 24000, "pi_coefficient": -200, "bbox": [-20, -15, 0, 20, 15, 20], "solid_count": 1, "feature_count": 2, "bores": [[0, 0, 5]], "blind_floor_z": 12}},
+    {"id": "independent_parts", "primary": "proj_plate", "sources": ["proj_plate", "proj_shaft", "proj_spacer"], "expected": {"constant": 48000, "pi_coefficient": -200, "bbox": [-50, -30, 0, 50, 30, 8], "solid_count": 1, "feature_count": 2}},
+    {"id": "fixture", "primary": "proj_fixture", "sources": ["proj_fixture", "proj_support_pair", "proj_plate", "proj_support", "proj_cap", "proj_pin"], "expected": {"constant": 76800, "pi_coefficient": 88, "bbox": [-50, -30, 0, 50, 30, 32], "solid_count": 8,
+      "instance_centers": {"comp_base": [0, 0, 4], "comp_supports/comp_left": [-30, 0, 16], "comp_supports/comp_right": [30, 0, 16], "comp_cap": [0, 0, 28], "comp_pin_a": [-40, -20, 12], "comp_pin_b": [40, -20, 12], "comp_pin_c": [-40, 20, 12], "comp_pin_d": [40, 20, 12]}}}
+  ]
+}

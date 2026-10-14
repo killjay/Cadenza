@@ -32,9 +32,9 @@ import math
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
-from build123d import Face, GeomType, Location, Vector, Axis
+from build123d import Face, GeomType, Location, Vector
 
-from cadenza_geometry.frames import dir_to_world, feature_location, to_world
+from cadenza_geometry.frames import dir_to_world, feature_location, to_world, pattern_locations
 from cadenza_geometry.plan import BuildPlan, RFeature
 
 # Tolerances. Generous relative to OCC's 1e-7 modelling tolerance, tight
@@ -73,6 +73,8 @@ class PlaneSpec:
     point: tuple[float, float, float]
     normal: tuple[float, float, float]
     kind: Literal["plane"] = "plane"
+    profile_id: str | None = None
+    entity_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,8 @@ class CylinderSpec:
     radius: float
     material_inside: bool
     kind: Literal["cylinder"] = "cylinder"
+    profile_id: str | None = None
+    entity_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -157,18 +161,16 @@ Spec = PlaneSpec | CylinderSpec | FlankSpec | ConeSpec | SphereSpec | TorusSpec
 
 def _transform_spec(s: Spec, step_loc: Location) -> Spec:
     def P(pt):
-        v = step_loc * Vector(pt)
-        return (v.X, v.Y, v.Z)
+        return to_world(step_loc, pt)
 
     def D(d):
-        # direction transforms only by rotation
-        v = step_loc.orientation * Vector(d)
-        return (v.X, v.Y, v.Z)
+        return dir_to_world(step_loc, d)
 
     if isinstance(s, PlaneSpec):
-        return PlaneSpec(s.label, P(s.point), D(s.normal))
+        return PlaneSpec(s.label, P(s.point), D(s.normal), profile_id=s.profile_id, entity_id=s.entity_id)
     elif isinstance(s, CylinderSpec):
-        return CylinderSpec(s.label, P(s.axis_point), D(s.axis_dir), s.radius, s.material_inside)
+        return CylinderSpec(s.label, P(s.axis_point), D(s.axis_dir), s.radius, s.material_inside,
+                            profile_id=s.profile_id, entity_id=s.entity_id)
     elif isinstance(s, ConeSpec):
         return ConeSpec(s.label, P(s.axis_point), D(s.axis_dir), s.bottom_radius, s.top_radius, s.height, s.material_inside)
     elif isinstance(s, FlankSpec):
@@ -193,7 +195,31 @@ def surfaces_for(f: RFeature, plan: BuildPlan | None = None) -> list[Spec]:
     D = lambda d: dir_to_world(loc, d)  # noqa: E731
     out: list[Spec] = []
 
-    if f.kind == "box":
+    if f.kind == "extrude" and plan and f.operation == "add" and not f.p.get("taper"):
+        profile = plan.by_id(f.p["target_feature"])
+        if profile is None or profile.kind != "profile":
+            return []
+        loc = feature_location(profile, plan)
+        height = f.p["amount"]
+        out += [PlaneSpec("top_face", P((0, 0, height)), D((0, 0, 1)), profile_id=profile.id),
+                PlaneSpec("bottom_face", P((0, 0, 0)), D((0, 0, -1)), profile_id=profile.id)]
+        for entity in profile.p["entities"]:
+            x, y = entity["x"], entity["y"]
+            identity = {"profile_id": profile.id, "entity_id": entity["id"]}
+            if entity["kind"] == "circle":
+                inner = entity["operation"] == "subtract"
+                out.append(CylinderSpec("bore" if inner else "lateral_face", P((x, y, 0)), D((0, 0, 1)),
+                    entity["diameter"] / 2, material_inside=not inner, **identity))
+            else:
+                for label, point, normal in [
+                    ("side_x_pos", (x + entity["width"] / 2, y, height / 2), (1, 0, 0)),
+                    ("side_x_neg", (x - entity["width"] / 2, y, height / 2), (-1, 0, 0)),
+                    ("side_y_pos", (x, y + entity["height"] / 2, height / 2), (0, 1, 0)),
+                    ("side_y_neg", (x, y - entity["height"] / 2, height / 2), (0, -1, 0)),
+                ]:
+                    out.append(PlaneSpec(label, P(point), D(normal), **identity))
+
+    elif f.kind == "box":
         length, width, height = f.p["length"], f.p["width"], f.p["height"]
         hl, hw = length / 2, width / 2
         # Labels are the semantic vocabulary the agent layer sees. They are
@@ -294,32 +320,11 @@ def surfaces_for(f: RFeature, plan: BuildPlan | None = None) -> list[Spec]:
         solid_side = f.operation == "add"
         out.append(TorusSpec("surface", P((0, 0, 0)), D((0, 0, 1)), rmaj, rmin, material_inside=solid_side))
 
-    elif f.kind == "linear_pattern" and plan:
-        target_f = plan.by_id(f.p["target"])
+    elif f.kind in ("linear_pattern", "circular_pattern") and plan:
+        target_f = plan.by_id(f.p["target_feature"])
         if target_f:
             base_specs = surfaces_for(target_f, plan)
-            count, count_2 = f.p["count"], f.p.get("count_2", 1)
-            spacing, spacing_2 = f.p["spacing"], f.p.get("spacing_2", 0.0)
-            w_axis = Vector(dir_to_world(loc, f.p["axis"]))
-            w_axis2 = Vector(dir_to_world(loc, f.p.get("axis_2", (0.0, 1.0, 0.0))))
-            for i in range(count):
-                for j in range(count_2):
-                    if i == 0 and j == 0:
-                        continue
-                    step_loc = Location(w_axis * spacing * i + w_axis2 * spacing_2 * j)
-                    out.extend(_transform_spec(s, step_loc) for s in base_specs)
-                
-    elif f.kind == "circular_pattern" and plan:
-        target_f = plan.by_id(f.p["target"])
-        if target_f:
-            base_specs = surfaces_for(target_f, plan)
-            count = f.p["count"]
-            axis_p0 = to_world(loc, (0, 0, 0))
-            axis_dir = dir_to_world(loc, (0, 0, 1))
-            rot_axis = Axis(axis_p0, axis_dir)
-            step = f.p["sweep_angle"] / count
-            for i in range(1, count):
-                step_loc = Location(rot_axis, step * i)
+            for step_loc in pattern_locations(f, plan):
                 out.extend(_transform_spec(s, step_loc) for s in base_specs)
 
     return out
@@ -359,7 +364,11 @@ def probe_face(face: Face, index: int) -> FaceProbe:
         ad = (ax.direction.X, ax.direction.Y, ax.direction.Z)
         # A cylindrical patch's centroid lies ON the surface, so a normal there
         # is meaningful and its sign tells us which side the material is on.
-        return FaceProbe(index, "cylinder", sample, normal, ap, ad, float(face.radius))
+        # Trimmed/overlapping cylinders may have no circular boundary edge, so
+        # build123d's edge-derived radius can be None. Read the actual surface.
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        radius = BRepAdaptor_Surface(face.wrapped).Cylinder().Radius()
+        return FaceProbe(index, "cylinder", sample, normal, ap, ad, radius)
 
     if gt == GeomType.CONE:
         ax = face.axis_of_rotation

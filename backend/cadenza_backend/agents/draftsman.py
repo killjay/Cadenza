@@ -51,6 +51,10 @@ from cadenza_backend.contracts_bridge import (
     new_feature_id,
 )
 from cadenza_backend.agents.model_client import AIError, ModelClient
+from cadenza_backend.agents.parameter_instructions import PARAMETER_INSTRUCTIONS
+from cadenza_contracts.parameters import Relationships
+from cadenza_contracts.profiles import ProfileDefinition
+from cadenza_backend.agents.profile_instructions import PROFILE_INSTRUCTIONS
 
 _feature_adapter: TypeAdapter[Feature] = TypeAdapter(Feature)
 
@@ -75,6 +79,7 @@ class DraftsmanOutput(BaseModel):
     features: list[DraftedFeature] = Field(default_factory=list)
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     needs_clarification: str | None = None
+    relationships: dict[str, Any] | None = None
 
 
 DRAFTSMAN_OUTPUT_SCHEMA = {
@@ -91,23 +96,28 @@ DRAFTSMAN_OUTPUT_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": ["box", "cylinder", "hole", "gear"]},
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "box", "cylinder", "hole", "gear", "cone", "sphere", "torus",
+                            "edge_fillet", "edge_chamfer", "sketch", "profile", "linear_pattern",
+                            "circular_pattern", "shell", "revolve", "loft", "extrude",
+                            "threaded_hole", "fastener"
+                        ]
+                    },
                     "name": {
                         "type": "string",
                         "description": "Short human name, e.g. 'Base Plate' or 'Centre Hole'.",
                     },
                     "operation": {
                         "type": "string",
-                        "enum": ["add", "subtract"],
-                        "description": "Holes are always 'subtract'. The first feature must be 'add'.",
+                        "enum": ["add", "subtract", "modify"],
+                        "description": "Holes are subtract. Fillet, chamfer, shell are modify.",
                     },
                     "parameters": {
                         "type": "object",
                         "description": (
-                            "Dimensions in MILLIMETRES. box: length, width, height. "
-                            "cylinder: diameter, height. hole: diameter, through (bool), "
-                            "and depth when through is false. gear: module, teeth, "
-                            "height, and optionally pressure_angle_deg and shift."
+                            "Dimensions in MILLIMETRES. See SYSTEM PROMPT for feature-specific parameters."
                         ),
                         "properties": {
                             "length": {"type": "number"},
@@ -133,6 +143,44 @@ DRAFTSMAN_OUTPUT_SCHEMA = {
                                 "type": "number",
                                 "description": "Gear profile shift in modules. Omit unless told; 0 is standard.",
                             },
+                            "bottom_diameter": {"type": "number"},
+                            "top_diameter": {"type": "number"},
+                            "radius": {"type": "number"},
+                            "major_diameter": {"type": "number"},
+                            "minor_diameter": {"type": "number"},
+                            "designation": {"type": "string"},
+                            "pitch": {"type": "number"},
+                            "head_type": {"type": "string", "enum": ["socket", "hex", "flat", "button"]},
+                            "vertices": {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "minItems": 2,
+                                    "maxItems": 2
+                                },
+                            },
+                            "draft_angle": {"type": "number"},
+                            "target_feature": {"type": "string"},
+                            "count": {"type": "integer"},
+                            "spacing": {"type": "number"},
+                            "axis": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3
+                            },
+                            "sweep_angle": {"type": "number"},
+                            "thickness": {"type": "number"},
+                            "open_faces": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            },
+                            "angle": {"type": "number"},
+                            "sections": {"type": "array"},
+                            "amount": {"type": "number"},
+                            "twist": {"type": "number"},
+                            "taper": {"type": "number"},
                         },
                     },
                     "placement": {
@@ -184,6 +232,15 @@ DRAFTSMAN_OUTPUT_SCHEMA = {
 }
 
 
+_relationships_schema = Relationships.model_json_schema()
+DRAFTSMAN_OUTPUT_SCHEMA["$defs"] = _relationships_schema.pop("$defs")
+# Draftsman refers to unique feature names; IDs are minted after generation.
+DRAFTSMAN_OUTPUT_SCHEMA["$defs"]["Binding"]["properties"]["feature_id"] = {"type": "string", "minLength": 1, "maxLength": 200}
+DRAFTSMAN_OUTPUT_SCHEMA["properties"]["relationships"] = _relationships_schema
+_profile_schema = ProfileDefinition.model_json_schema()
+DRAFTSMAN_OUTPUT_SCHEMA["$defs"].update(_profile_schema.pop("$defs"))
+DRAFTSMAN_OUTPUT_SCHEMA["properties"]["features"]["items"]["properties"]["parameters"]["properties"].update(_profile_schema["properties"])
+
 DRAFTSMAN_SYSTEM = """\
 You are the Draftsman in CADenza, a natural-language CAD system. You turn a plain-English \
 description of a part into an ordered list of parametric features. You never write code — \
@@ -192,10 +249,24 @@ your entire output is the structured feature list.
 FEATURE VOCABULARY (this is all you have; compose these)
   box      -> length (+X), width (+Y), height (+Z)
   cylinder -> diameter, height (+Z)
+  cone     -> bottom_diameter, top_diameter, height
+  sphere   -> diameter
+  torus    -> major_diameter, minor_diameter
   hole     -> diameter, through (bool), depth (only when through is false); always subtract
   gear     -> module, teeth, height (+Z); optionally pressure_angle_deg, shift
               A standard involute spur gear. Its axle bore is a separate `hole`
               feature — a gear on its own is a solid wheel.
+  edge_fillet -> radius, length (optional). operation: modify
+  edge_chamfer -> width, length (optional). operation: modify
+  sketch   -> vertices (list of [x,y]), height, draft_angle
+  shell    -> thickness, open_faces (list of face hashes as strings). operation: modify
+  revolve  -> vertices (list of [x,y]), angle, axis ([x,y,z])
+  loft     -> sections (list of dicts)
+  extrude  -> target_feature (must be feature ID), amount, twist, taper
+  linear_pattern -> target_feature (must be feature ID), count, spacing, axis. operation: add
+  circular_pattern -> target_feature (must be feature ID), count, radius, sweep_angle. operation: add
+  threaded_hole -> designation, diameter, through, depth, pitch (optional)
+  fastener -> designation, diameter, length, head_type (socket|hex|flat|button). operation: add
 
 GEARS
 A gear has NO diameter parameter. Its size is module x teeth:
@@ -212,6 +283,11 @@ Users almost never say "module". Translate what they do say:
   - "a gear" with no size at all    -> module 2, 20 teeth, 10 mm thick. Record all three.
 Two gears that must MESH need the SAME module and the same pressure angle — that is
 what meshing means. Their ratio is the ratio of their tooth counts.
+For PLANETARY gear systems or meshing gears, you MUST place them at exactly the
+theoretical center distance `(z1 + z2) * module / 2`. To perfectly interlock the
+teeth without any overlap, you MUST calculate and apply this exact rotation to the meshing/planet gears:
+`rotation_deg = orbit_angle_deg * (z_sun / z_planet + 1) + 180 + 180 / z_planet`
+(where `orbit_angle_deg` is the angle of the planet gear's position relative to the sun gear's center).
 Prefer 17 or more teeth. Below that a real cutter undercuts the tooth root, and while
 the part will still build, it is weaker than the drawing suggests; if the user asks for
 fewer, build it and say so in `summary`.
@@ -238,17 +314,14 @@ HARD RULES
    in question, which for a plate centred on the origin means x=0, y=0.
 
 WHAT YOU CANNOT BUILD
-Your vocabulary is box, cylinder, hole and gear. Real parts routinely need more than
-that, so decide which of two cases you are in and act accordingly.
+Your vocabulary is now 18 features. If the user asks for a feature that can be composed of these, do it.
 
-  (a) The part's overall FORM is expressible, and what is missing is DETAIL — a fillet,
-      a chamfer, a thread callout, a knurl. Build the form. Then say plainly IN THE
-      `summary` which details you dropped ("...without the R20 fillet or the M8 thread"),
+  (a) The part's overall FORM is expressible, and what is missing is DETAIL — a knurl or surface finish. 
+      Build the form. Then say plainly IN THE `summary` which details you dropped ("...without the knurl"),
       and record each one in `assumptions` too. The user must learn what they are looking
       at from the sentence they read first, not by expanding a list.
 
-  (b) The FORM itself is outside the vocabulary — a revolve, a sweep, a loft, a helix
-      or a thread cut as real geometry, an organic or freeform surface, a sheet-metal
+  (b) The FORM itself is outside the vocabulary — an organic or freeform surface, a sheet-metal
       bend, or an assembly of several parts. Do NOT approximate it out of boxes and
       cylinders and call it done. Set `needs_clarification` naming exactly what you
       cannot build, and emit only features you are confident in (an empty list is fine).
@@ -274,12 +347,13 @@ hardware (e.g., "M8 bolt hole" or "clearance for M6 socket head cap screw"), do 
 the dimensions. You MUST use the tool to fetch the exact clearance, tap drill, and counterbore
 sizes before generating the hole feature. Do this for all metric socket head screws requested.
 
-MATH SANDBOX
-You have access to a `math_sandbox` tool. ALWAYS use it to calculate coordinates for patterns, 
-bolt circles, arrays, or trigonometry. Do NOT try to calculate trigonometry or array coordinates 
-in your head—you will fail and hallucinate incorrect dimensions. Write a small python script 
-and use the pre-packaged helper functions (e.g. `result = bolt_circle(40, 6)`) to get perfect 
-coordinates before you place the features.
+GEOMETRY MATH
+Use `math_sandbox` with a named operation and numeric arguments for pattern coordinates,
+gear spacing, and trigonometry. Example: {"operation": "bolt_circle", "arguments":
+{"radius": 40, "count": 6}}. Only operations in the tool schema are supported; no Python
+scripts or expressions. Each result is limited to 1024 points. Tool errors require
+corrected arguments, not invented coordinates. Bearing allowances are illustrative,
+not standards-based fits; pitch geometry alone does not establish a working gearbox.
 """
 
 
@@ -345,7 +419,11 @@ def draftsman_system(has_images: bool = False) -> str:
     does not pay for instructions about dimension lines it will never see — and,
     more usefully, so the model is not primed to hallucinate an image.
     """
-    return DRAFTSMAN_SYSTEM + (DRAFTSMAN_VISION_SYSTEM if has_images else "")
+    return DRAFTSMAN_SYSTEM + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS + (
+        "\nFor initial creation, emit an optional relationships object next to features. "
+        "In each binding.feature_id use the EXACT UNIQUE feature name; the server replaces it with a minted ID. "
+        "Supply valid numeric initial feature inputs as well. Omit relationships when none are requested.\n"
+    ) + (DRAFTSMAN_VISION_SYSTEM if has_images else "")
 
 
 def build_draftsman_user_message(prompt: str, has_images: bool = False) -> str:
@@ -366,9 +444,24 @@ def build_draftsman_user_message(prompt: str, has_images: bool = False) -> str:
 def _to_contract_features(drafted: list[DraftedFeature]) -> list[Feature]:
     """Mint ids and validate each drafted feature against the contract's union."""
     features: list[Feature] = []
+    name_to_id: dict[str, str] = {}
     for item in drafted:
+        fid = new_feature_id(item.name or item.kind)
+        
+        # Build map for target_feature resolution
+        if item.name:
+            name_to_id[item.name.lower()] = fid
+        
+        # Resolve target_feature if present
+        if "target_feature" in item.parameters:
+            target = item.parameters["target_feature"]
+            if target and not target.startswith("feat_"):
+                # try to resolve by name
+                if target.lower() in name_to_id:
+                    item.parameters["target_feature"] = name_to_id[target.lower()]
+        
         payload: dict[str, Any] = {
-            "id": new_feature_id(item.name or item.kind),
+            "id": fid,
             "kind": item.kind,
             "name": item.name,
             "parameters": item.parameters,
@@ -427,7 +520,23 @@ async def run_draftsman(
     if output.needs_clarification and not output.features:
         return [], output
 
-    return _to_contract_features(output.features), output
+    features = _to_contract_features(output.features)
+    if output.relationships is not None:
+        names: dict[str, list[str]] = {}
+        for feature in features:
+            names.setdefault(feature.name, []).append(feature.id)
+        try:
+            for binding in output.relationships.get("bindings", []):
+                matches = names.get(binding["feature_id"], [])
+                if len(matches) != 1:
+                    raise ValueError("Each relationship binding must name exactly one drafted feature")
+                binding["feature_id"] = matches[0]
+            output.relationships = Relationships.model_validate(output.relationships).model_dump(mode="json")
+            # Evaluate now so callers outside the graph receive resolved features too.
+            features = Ledger.model_validate({"features": features, "relationships": output.relationships}).features
+        except (ValueError, KeyError, TypeError) as exc:
+            raise AIError(f"Draftsman emitted invalid relationships: {exc}") from exc
+    return features, output
 
 
 def parse_assumptions(items: list[dict[str, Any]]) -> list[Assumption]:

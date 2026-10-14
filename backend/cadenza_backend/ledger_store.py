@@ -129,6 +129,10 @@ def apply_patch(ledger: Ledger, ops: list[PatchOp]) -> AppliedPatch:
     #    feature dies here, loudly, instead of silently no-op'ing downstream.
     try:
         normalised = normalize_patch(ledger, ops)
+    except CadenzaError as exc:
+        if exc.code == ErrorCode.PATCH_APPLY_FAILED and isinstance(exc.__cause__, (jsonpatch.JsonPatchConflict, jsonpointer.JsonPointerException)):
+            raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, exc.message) from exc
+        raise
     except PointerResolutionError as exc:
         raise CadenzaError(
             ErrorCode.PATCH_UNKNOWN_TARGET,
@@ -167,11 +171,23 @@ def apply_patch(ledger: Ledger, ops: list[PatchOp]) -> AppliedPatch:
     #    that slips a forbidden change past the path check.
     _reject_identity_drift(before, after)
 
+    # 4b. Coerce any plain-string assumptions that an agent may have written into
+    #     ai_context.assumptions. The Machinist sometimes emits strings instead of
+    #     {"field", "value", "basis", "confidence"} objects; Pydantic rejects them
+    #     at step 5. Normalising here keeps the build alive — the string becomes a
+    #     low-confidence assumption whose `field` is "general" and whose `basis` is
+    #     the original string, which is the closest lossless representation.
+    _sanitise_assumptions(after)
+
     # 5. The result must still be a legal ledger — this is what catches an agent
     #    writing height=-5, or dropping a required parameter, or breaking the
     #    "first live feature must be additive" rule.
     try:
         patched = Ledger.model_validate(after)
+        from cadenza_contracts.references import validate_references
+        validate_references(patched.model_dump(mode="json"))
+        from cadenza_contracts.patterns import validate_pattern_changes
+        validate_pattern_changes(before, after, patched.model_dump(mode="json"))
     except ValidationError as exc:
         raise CadenzaError(
             ErrorCode.LEDGER_INVALID,
@@ -179,7 +195,37 @@ def apply_patch(ledger: Ledger, ops: list[PatchOp]) -> AppliedPatch:
             detail=str(exc),
         ) from exc
 
+    except ValueError as exc:
+        raise CadenzaError(ErrorCode.LEDGER_INVALID, str(exc)) from exc
+
     return AppliedPatch(ledger=patched, ops=normalised)
+
+
+def _sanitise_assumptions(doc: Any) -> None:
+    """Recursively coerce any plain-string assumptions to Assumption dicts.
+
+    The Machinist may write ``ai_context.assumptions`` as a list of strings
+    rather than the required ``{field, value, basis, confidence}`` objects.
+    Pydantic would reject the ledger at validation time; this normalises them
+    in-place before that step so the build is not lost over a cosmetic badge.
+    """
+    if isinstance(doc, dict):
+        for key, val in doc.items():
+            if key == "assumptions" and isinstance(val, list):
+                doc[key] = [
+                    item if isinstance(item, dict) else {
+                        "field": "general",
+                        "value": str(item),
+                        "basis": str(item),
+                        "confidence": 0.5,
+                    }
+                    for item in val
+                ]
+            else:
+                _sanitise_assumptions(val)
+    elif isinstance(doc, list):
+        for item in doc:
+            _sanitise_assumptions(item)
 
 
 @dataclass
@@ -227,8 +273,18 @@ class LedgerStore:
         self.ledger = self.ledger.model_copy(update={"revision": self.ledger.revision + 1})
         return self.ledger.revision
 
-    def rollback(self) -> Ledger:
-        """Undo the last applied patch. Prototype-grade: no redo stack."""
-        if self.history:
+    def undo(self, target_revision: int | None = None) -> bool:
+        """Undo to the target revision (or just 1 step if None). Returns True if changed."""
+        if not self.history:
+            return False
+            
+        if target_revision is None:
             self.ledger = self.history.pop()
-        return self.ledger
+            return True
+            
+        changed = False
+        while self.history and self.ledger.revision > target_revision:
+            self.ledger = self.history.pop()
+            changed = True
+            
+        return changed

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "ledger_id": "prj_milestone1",
+  "component_path": [],
+  "source_ledger_id": "prj_milestone1",
+  "source_part_id": null,
+  "feature_id": "feat_main_body_0001",
+  "feature_kind": "box",
+  "operation": "add",
+  "role": "top_face"
+}

@@ -16,12 +16,13 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from build123d import Face, Shape
 
-from cadenza_geometry.builder import build_solid
+from cadenza_geometry.builder import AssemblyLeaf, build_assembly, build_solid
+from cadenza_geometry.frames import to_world, dir_to_world
 from cadenza_geometry.contracts import (
     BBox,
     BuildResult,
@@ -31,7 +32,7 @@ from cadenza_geometry.contracts import (
     SpatialQuery,
 )
 from cadenza_geometry.exporters import export_glb_bytes, export_step_bytes
-from cadenza_geometry.plan import BuildPlan, RFeature, resolve
+from cadenza_geometry.plan import BuildPlan, AssemblyPlan, RFeature, resolve
 from cadenza_geometry.provenance import Spec, attribute
 from cadenza_geometry.spatial import probe as spatial_probe
 
@@ -40,12 +41,15 @@ from cadenza_geometry.spatial import probe as spatial_probe
 class _Built:
     """One built model, kept so a probe does not have to rebuild it."""
 
-    plan: BuildPlan
+    plan: BuildPlan | AssemblyPlan
     solid: Shape
     faces: list[Face]
-    attribution: dict[int, tuple[RFeature, Spec]]
+    attribution: dict[int, tuple[str | None, RFeature, Spec]]
+    # Assembly specs remain source-local; faces are world-space. Current
+    # assembly consumers use spec.label and explicit instance transforms.
     ambiguity: dict[int, list[str]]
     build_ms: float
+    instances: dict[str, AssemblyLeaf]
 
 
 def _fingerprint(ledger: Any) -> str:
@@ -66,18 +70,41 @@ class Build123dGeometryService:
 
     # ---------------------------------------------------------------- build --
 
-    def _compile(self, ledger: Any) -> _Built:
-        key = _fingerprint(ledger)
+    def _compile(self, ledger: Any, all_ledgers: dict[str, Any] | None = None) -> _Built:
+        # External part edits must invalidate an otherwise unchanged assembly.
+        key = _fingerprint({"ledger": ledger.model_dump(mode="json") if hasattr(ledger, "model_dump") else ledger,
+                            "dependencies": {lid: doc.model_dump(mode="json") if hasattr(doc, "model_dump") else doc
+                                             for lid, doc in (all_ledgers or {}).items()}})
         cached = self._cache.get(key)
         if cached is not None:
             self._cache.move_to_end(key)
             return cached
 
         t0 = time.perf_counter()
-        plan = resolve(ledger)                 # invariant gates, no kernel yet
-        solid = build_solid(plan)              # exact B-rep
-        faces = list(solid.faces())
-        attribution, ambiguity = attribute(plan, faces)
+        plan = resolve(ledger, all_ledgers=all_ledgers)                 # invariant gates, no kernel yet
+        
+        instances: dict[str, AssemblyLeaf] = {}
+        if isinstance(plan, AssemblyPlan):
+            leaves: list[AssemblyLeaf] = []
+            solid = build_assembly(plan, leaves=leaves)
+            faces = []
+            attribution: dict[int, tuple[str | None, RFeature, Spec]] = {}
+            ambiguity: dict[int, list[str]] = {}
+            for leaf in leaves:
+                component_path = "/".join(leaf.path)
+                instances[component_path] = leaf
+                local_faces = list(leaf.solid.faces())
+                local_attr, local_ambiguity = attribute(leaf.plan, local_faces)
+                offset = len(faces)
+                faces.extend(leaf.location * face for face in local_faces)
+                attribution.update({offset + i: (component_path, feature, spec)
+                                    for i, (feature, spec) in local_attr.items()})
+                ambiguity.update({offset + i: rivals for i, rivals in local_ambiguity.items()})
+        else:
+            solid = build_solid(plan)              # exact B-rep
+            faces = list(solid.faces())
+            attr, ambiguity = attribute(plan, faces)
+            attribution = {i: (None, feat, spec) for i, (feat, spec) in attr.items()}
         built = _Built(
             plan=plan,
             solid=solid,
@@ -85,6 +112,7 @@ class Build123dGeometryService:
             attribution=attribution,
             ambiguity=ambiguity,
             build_ms=(time.perf_counter() - t0) * 1000.0,
+            instances=instances,
         )
 
         self._cache[key] = built
@@ -93,12 +121,15 @@ class Build123dGeometryService:
             self._cache.popitem(last=False)
         return built
 
-    def build(self, ledger: Any) -> BuildResult:
+    def build(self, ledger: Any, all_ledgers: dict[str, Any] | None = None) -> BuildResult:
         """Ledger -> GLB + STEP + metadata. Raises GeometryError on bad input."""
-        built = self._compile(ledger)
+        built = self._compile(ledger, all_ledgers=all_ledgers)
         t0 = time.perf_counter()
         step = export_step_bytes(built.solid)
-        glb, entities = export_glb_bytes(built.faces, built.attribution, built.plan)
+        glb, entities = export_glb_bytes(built.faces, built.attribution, built.plan,
+            component_parts={path: leaf.part_id for path, leaf in built.instances.items()},
+            component_sources={path: leaf.plan.project_id for path, leaf in built.instances.items()},
+            ambiguity=built.ambiguity)
         export_ms = (time.perf_counter() - t0) * 1000.0
 
         bb = built.solid.bounding_box()
@@ -111,14 +142,14 @@ class Build123dGeometryService:
             # surfacing rather than discovering through a silent NO_HIT.
             warnings.append(
                 f"{len(unattributed)} of {len(built.faces)} faces could not be traced "
-                "to a ledger feature; clicks there will resolve to the nearest named face"
+                "to a ledger feature; selection there may be unavailable or uncertain"
             )
 
         return BuildResult(
             glb=glb,
             step=step,
             bbox=BBox(min=(bb.min.X, bb.min.Y, bb.min.Z), max=(bb.max.X, bb.max.Y, bb.max.Z)),
-            volume=built.solid.volume,
+            volume=sum(solid.volume for solid in built.solid.solids()),
             entities=entities,
             revision=built.plan.revision,
             build_ms=built.build_ms + export_ms,
@@ -127,18 +158,47 @@ class Build123dGeometryService:
 
     # ---------------------------------------------------------------- probe --
 
-    def probe(self, ledger: Any, query: SpatialQuery) -> SpatialHit | None:
+    def probe(self, ledger: Any, query: SpatialQuery, all_ledgers: dict[str, Any] | None = None) -> SpatialHit | None:
         """A 3D click -> the ledger node that generated the nearest face."""
-        built = self._compile(ledger)
-        return spatial_probe(
+        built = self._compile(ledger, all_ledgers=all_ledgers)
+        hit = spatial_probe(
             built.plan, built.faces, built.attribution, built.ambiguity, query, built.solid
         )
+        if hit is not None and hit.component_id in built.instances:
+            leaf = built.instances[hit.component_id]
+            feature = next(f for f in leaf.plan.features if f.id == hit.feature_id)
+            hit = replace(hit, source_ledger_id=leaf.plan.project_id, source_part_id=leaf.part_id,
+                feature_name=feature.name, feature_kind=feature.kind,
+                source_point=to_world(leaf.location.inverse(), hit.point_on_face),
+                source_normal=dir_to_world(leaf.location.inverse(), hit.normal))
+        return hit
 
 
-    def run_probe_query(self, ledger: Any, query: dict) -> dict:
+    def run_probe_query(self, ledger: Any, query: dict, all_ledgers: dict[str, Any] | None = None) -> dict:
         """Executes a geometric probe query (bounding box, collision, etc.)"""
         from cadenza_geometry.probe import run_probe_query
-        built = self._compile(ledger)
+        from cadenza_contracts.surface_reference import SurfaceReference
+        from cadenza_geometry.surface_references import capture_surface_reference, resolve_surface_reference
+        if query.get("query_type") == "resolve_surface_reference":
+            raw = query.get("reference")
+            if query.get("reference_id") is not None:
+                doc = ledger.model_dump(mode="json") if hasattr(ledger, "model_dump") else ledger
+                raw = doc.get("surface_references", {}).get(query["reference_id"])
+            if raw is None:
+                return {"status": "missing", "message": "Saved surface reference was not found."}
+            reference = SurfaceReference.model_validate(raw)
+            # An emptied ledger has no solid to compile, but saved annotations
+            # must remain inspectable after deletion of its final feature.
+            doc = ledger.model_dump(mode="json") if hasattr(ledger, "model_dump") else ledger
+            empty = (not doc["assembly"].get("components") if doc.get("assembly") is not None
+                     else not any(not f.get("suppressed", False) for f in doc.get("features", [])))
+            if empty:
+                return {"status": "missing", "reference": reference.model_dump(mode="json"),
+                        "message": "Referenced geometry is empty or suppressed."}
+            return resolve_surface_reference(self._compile(ledger, all_ledgers=all_ledgers), reference)
+        built = self._compile(ledger, all_ledgers=all_ledgers)
+        if query.get("query_type") == "capture_surface_reference":
+            return capture_surface_reference(built, query.get("point", []), query.get("normal"))
         return run_probe_query(built, query)
 
     def probe_point_legacy(
@@ -147,6 +207,7 @@ class Build123dGeometryService:
         point: tuple[float, float, float],
         max_distance: float | None = None,
         normal: tuple[float, float, float] | None = None,
+        all_ledgers: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """Convenience wrapper returning the blueprint §5 dict shape directly.
 
@@ -161,6 +222,7 @@ class Build123dGeometryService:
                 max_distance=max_distance,
                 normal=tuple(normal) if normal is not None else None,
             ),
+            all_ledgers=all_ledgers,
         )
         return hit.to_dict() if hit is not None else None
 

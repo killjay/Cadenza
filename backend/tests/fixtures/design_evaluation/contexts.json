@@ -1,0 +1,1625 @@
+{
+  "empty": {
+    "primary": "root",
+    "ledgers": {
+      "root": {
+        "schema_version": 1,
+        "project_id": "root",
+        "revision": 0,
+        "metadata": {
+          "name": "Empty",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "plate": {
+    "primary": "plate",
+    "ledgers": {
+      "plate": {
+        "schema_version": 1,
+        "project_id": "plate",
+        "revision": 0,
+        "metadata": {
+          "name": "Plate",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 100.0,
+              "width": 100.0,
+              "height": 8.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "pattern": {
+    "primary": "plate",
+    "ledgers": {
+      "plate": {
+        "schema_version": 1,
+        "project_id": "plate",
+        "revision": 0,
+        "metadata": {
+          "name": "Plate",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 100.0,
+              "width": 100.0,
+              "height": 8.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          },
+          {
+            "id": "feat_seed",
+            "name": "Seed",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                20.0,
+                0.0,
+                8.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "hole",
+            "operation": "subtract",
+            "parameters": {
+              "diameter": 6.0,
+              "through": true,
+              "depth": null
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "assembly": {
+    "primary": "root",
+    "ledgers": {
+      "root": {
+        "schema_version": 1,
+        "project_id": "root",
+        "revision": 0,
+        "metadata": {
+          "name": "Assembly",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_first",
+              "name": "First",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_second",
+              "name": "Second",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  200.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": []
+        },
+        "surface_references": {}
+      },
+      "module": {
+        "schema_version": 1,
+        "project_id": "module",
+        "revision": 0,
+        "metadata": {
+          "name": "Module",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_a",
+              "name": "A",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_0",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_b",
+              "name": "B",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_1",
+              "placement": {
+                "origin": [
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_c",
+              "name": "C",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_2",
+              "placement": {
+                "origin": [
+                  60.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_d",
+              "name": "D",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_3",
+              "placement": {
+                "origin": [
+                  90.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": [
+            {
+              "id": "joint_existing",
+              "kind": "rigid",
+              "component_a": "comp_a",
+              "component_b": "comp_b",
+              "target_a": {
+                "mode": "coordinate",
+                "point": [
+                  0.0,
+                  0.0,
+                  4.0
+                ],
+                "normal": null,
+                "reference_feature": null
+              },
+              "target_b": {
+                "mode": "coordinate",
+                "point": [
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "normal": null,
+                "reference_feature": null
+              }
+            }
+          ]
+        },
+        "surface_references": {}
+      },
+      "source_0": {
+        "schema_version": 1,
+        "project_id": "source_0",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 0",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 10.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_1": {
+        "schema_version": 1,
+        "project_id": "source_1",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 1",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 11.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_2": {
+        "schema_version": 1,
+        "project_id": "source_2",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 2",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 12.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_3": {
+        "schema_version": 1,
+        "project_id": "source_3",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 3",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 13.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "assembly_large": {
+    "primary": "root",
+    "ledgers": {
+      "root": {
+        "schema_version": 1,
+        "project_id": "root",
+        "revision": 0,
+        "metadata": {
+          "name": "Assembly",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_first",
+              "name": "First",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_second",
+              "name": "Second",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  200.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": []
+        },
+        "surface_references": {}
+      },
+      "module": {
+        "schema_version": 1,
+        "project_id": "module",
+        "revision": 0,
+        "metadata": {
+          "name": "Module",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_a",
+              "name": "A",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_0",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_b",
+              "name": "B",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_1",
+              "placement": {
+                "origin": [
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_c",
+              "name": "C",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_2",
+              "placement": {
+                "origin": [
+                  60.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_d",
+              "name": "D",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_3",
+              "placement": {
+                "origin": [
+                  90.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": [
+            {
+              "id": "joint_existing",
+              "kind": "rigid",
+              "component_a": "comp_a",
+              "component_b": "comp_b",
+              "target_a": {
+                "mode": "coordinate",
+                "point": [
+                  0.0,
+                  0.0,
+                  4.0
+                ],
+                "normal": null,
+                "reference_feature": null
+              },
+              "target_b": {
+                "mode": "coordinate",
+                "point": [
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "normal": null,
+                "reference_feature": null
+              }
+            }
+          ]
+        },
+        "surface_references": {}
+      },
+      "source_0": {
+        "schema_version": 1,
+        "project_id": "source_0",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 0",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 12.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_1": {
+        "schema_version": 1,
+        "project_id": "source_1",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 1",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 13.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_2": {
+        "schema_version": 1,
+        "project_id": "source_2",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 2",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 14.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_3": {
+        "schema_version": 1,
+        "project_id": "source_3",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 3",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 15.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "sources": {
+    "primary": "root",
+    "ledgers": {
+      "root": {
+        "schema_version": 1,
+        "project_id": "root",
+        "revision": 0,
+        "metadata": {
+          "name": "Empty",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_0": {
+        "schema_version": 1,
+        "project_id": "source_0",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 0",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 10.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_1": {
+        "schema_version": 1,
+        "project_id": "source_1",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 1",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 11.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_2": {
+        "schema_version": 1,
+        "project_id": "source_2",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 2",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 12.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_3": {
+        "schema_version": 1,
+        "project_id": "source_3",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 3",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 13.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  },
+  "loose": {
+    "primary": "root",
+    "ledgers": {
+      "root": {
+        "schema_version": 1,
+        "project_id": "root",
+        "revision": 0,
+        "metadata": {
+          "name": "Assembly",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_first",
+              "name": "First",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_second",
+              "name": "Second",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "module",
+              "placement": {
+                "origin": [
+                  200.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": []
+        },
+        "surface_references": {}
+      },
+      "module": {
+        "schema_version": 1,
+        "project_id": "module",
+        "revision": 0,
+        "metadata": {
+          "name": "Module",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [],
+        "assembly": {
+          "parts": [],
+          "components": [
+            {
+              "id": "comp_a",
+              "name": "A",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_0",
+              "placement": {
+                "origin": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_b",
+              "name": "B",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_1",
+              "placement": {
+                "origin": [
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_c",
+              "name": "C",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_2",
+              "placement": {
+                "origin": [
+                  60.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            },
+            {
+              "id": "comp_d",
+              "name": "D",
+              "part_id": null,
+              "catalog_sku": null,
+              "sub_assembly_id": "source_3",
+              "placement": {
+                "origin": [
+                  90.0,
+                  0.0,
+                  0.0
+                ],
+                "rotation_deg": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "relative_to": null
+              }
+            }
+          ],
+          "joints": []
+        },
+        "surface_references": {}
+      },
+      "source_0": {
+        "schema_version": 1,
+        "project_id": "source_0",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 0",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 10.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_1": {
+        "schema_version": 1,
+        "project_id": "source_1",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 1",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 11.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_2": {
+        "schema_version": 1,
+        "project_id": "source_2",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 2",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 12.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      },
+      "source_3": {
+        "schema_version": 1,
+        "project_id": "source_3",
+        "revision": 0,
+        "metadata": {
+          "name": "Source 3",
+          "workspace_mode": "3D",
+          "global_units": "mm",
+          "manufacturing_intent": null,
+          "tolerance_class": null
+        },
+        "relationships": {
+          "parameters": {},
+          "bindings": [],
+          "constraints": []
+        },
+        "features": [
+          {
+            "id": "feat_stock",
+            "name": "Stock",
+            "suppressed": false,
+            "placement": {
+              "origin": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "rotation_deg": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "relative_to": null
+            },
+            "targets": [],
+            "ai_context": {
+              "original_intent": null,
+              "assumptions": []
+            },
+            "kind": "box",
+            "operation": "add",
+            "parameters": {
+              "length": 13.0,
+              "width": 8.0,
+              "height": 4.0,
+              "through": false,
+              "draft_angle": 0.0
+            }
+          }
+        ],
+        "assembly": null,
+        "surface_references": {}
+      }
+    }
+  }
+}

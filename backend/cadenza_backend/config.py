@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]      # cadenza/backend
 _CADENZA_DIR = _BACKEND_DIR.parent                       # cadenza
@@ -24,6 +25,18 @@ PROVIDERS = ("anthropic", "deepseek", "openrouter")
 
 
 class Settings(BaseSettings):
+    evaluation_view_root: Path | None = None
+    diagnostics_enabled: bool = True
+    diagnostics_capture_images: bool = True
+    diagnostics_path: Path = _BACKEND_DIR / "logs" / "diagnostics" / "v1"
+    diagnostics_session_bytes: int = Field(default=128*1024**2, ge=65536, le=1024**3)
+    diagnostics_total_bytes: int = Field(default=1024**3, ge=65536, le=8*1024**3)
+    diagnostics_retention_days: int = Field(default=14, ge=1, le=365)
+    geometry_max_workers: int = Field(default=2, ge=1, le=16)
+    geometry_timeout_s: float = Field(default=20.0, gt=0, le=600)
+    geometry_startup_timeout_s: float = Field(default=60.0, gt=0, le=600)
+    geometry_worker_max_jobs: int = Field(default=100, ge=1, le=10000)
+    project_db_path: Path = _BACKEND_DIR / "data" / "projects.sqlite3"
     model_config = SettingsConfigDict(
         env_file=[str(p) for p in ENV_FILES],
         env_file_encoding="utf-8",

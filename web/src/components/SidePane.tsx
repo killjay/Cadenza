@@ -5,7 +5,17 @@
  */
 import { useEffect, useRef } from "react";
 import { useStore } from "../lib/store";
+import { AssemblyEditor } from "./AssemblyEditor";
+import { PartsWorkspace } from "./PartsWorkspace";
 import { Composer } from "./Composer";
+import { SavedSurfaces } from "./SavedSurfaces";
+import { EditPreview } from "./EditPreview";
+import { FeatureEditor } from "./FeatureEditor";
+import { FeatureCreate } from "./FeatureCreate";
+import { PatternControls } from "./PatternControls";
+import { SketchEditor } from "./SketchEditor";
+import { ParameterEditor } from "./ParameterEditor";
+import { SketchDraftEditor } from "./SketchDraftEditor";
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -17,22 +27,31 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function SidePane() {
+  const selectedSourceId = useStore(s => s.selectedSourceId);
+  const sourceLoading = useStore(s => s.sourceLoading);
+  const startFeaturePrompt = useStore(s => s.startFeaturePrompt);
+  const promptDisabled = useStore(s => !s.featurePromptAvailable || !s.capabilities || !s.agentsAvailable
+    || s.busy || !!s.preview || !!s.draft || s.draftStarting || s.connection !== "open" || s.model?.source === "local");
   const conversation = useStore((s) => s.conversation);
-  const model = useStore((s) => s.model);
   const kernel = useStore((s) => s.kernel);
   const busy = useStore((s) => s.busy);
+  const draft = useStore((s) => s.draft);
   const phase = useStore((s) => s.phase);
+  const selections = useStore((s) => s.selections);
+  const ledgers = useStore((s) => s.ledgers);
+  const activeLedgerIds = useStore((s) => s.activeLedgerIds);
+  const setActiveLedgerIds = useStore((s) => s.setActiveLedgerIds);
+  const sessionId = useStore((s) => s.sessionId);
+  const revision = useStore((s) => s.sessionRevision);
 
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [conversation.length, busy]);
 
-  const s = model?.summary;
-
   return (
     <aside className="flex min-h-0 flex-col border-l border-hairline bg-chrome">
-      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+      <div className={draft ? "hidden" : "min-h-0 flex-1 overflow-y-auto px-2.5 py-2"}>
         {conversation.length === 0 && (
           <div className="mt-6 space-y-2 text-11 leading-relaxed text-ink-4">
             <p className="text-ink-3">Describe a part, or drop in a sketch.</p>
@@ -49,7 +68,7 @@ export function SidePane() {
         )}
 
         {conversation.map((item) => (
-          <div key={item.id} className="mb-2">
+          <div key={item.id} className="mb-2 select-text">
             {item.kind === "user" && (
               <div className="rounded-base border border-hairline bg-elevated px-2 py-1.5">
                 {item.images && item.images.length > 0 && (
@@ -113,10 +132,33 @@ export function SidePane() {
         <div ref={endRef} />
       </div>
 
-      <Composer />
+      <EditPreview />
+      <SketchDraftEditor />
+      {!draft && <Composer />}
+      {!draft && !selectedSourceId && <SavedSurfaces />}
 
-      <div className="border-t border-hairline px-2.5 py-2">
-        <div className="mb-1 text-10 uppercase tracking-wide text-ink-4">Exact geometry</div>
+      <div className={draft ? "hidden" : "max-h-80 shrink-0 overflow-auto border-t border-hairline px-2.5 py-2"}>
+        {selections.length > 0 && (
+          <div className="mb-4 rounded-base border border-accent/30 bg-accent/5 p-2">
+            <div className="mb-2 text-11 font-semibold text-accent">Active Selection</div>
+            {selections.map((sel, i) => (
+              <div key={i} className="mb-2 last:mb-0">
+                <Row label="Coordinates (X,Y,Z)" value={sel.point.map(n => n.toFixed(1)).join(", ")} />
+                <Row label="Normal Vector" value={sel.normal.map(n => n.toFixed(1)).join(", ")} />
+                {sel.label && <Row label="Face Label" value={sel.label} />}
+                {sel.info && (
+                   <>
+                     <Row label="Surface Type" value={sel.info.surfaceType} />
+                     {sel.info.radius !== null && <Row label="Radius" value={`${sel.info.radius.toFixed(2)} mm`} />}
+                   </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <PartsWorkspace />
+        <AssemblyEditor />
+        <div className="mb-1 text-10 uppercase tracking-wide text-ink-4">{selectedSourceId ? "Source features" : "Project sources"}</div>
         {kernel.state !== "ready" && (
           <div className="text-11 text-ink-4">
             {kernel.state === "booting" && "booting occt-wasm…"}
@@ -124,26 +166,55 @@ export function SidePane() {
             {kernel.state === "failed" && <span className="text-red">{kernel.error}</span>}
           </div>
         )}
-        {s ? (
-          <>
-            <Row label="faces" value={String(s.faceCount)} />
-            <Row label="edges" value={String(s.edgeCount)} />
-            <Row label="volume" value={`${s.volume.toFixed(1)} mm³`} />
-            <Row label="area" value={`${s.area.toFixed(1)} mm²`} />
-            <Row
-              label="bbox"
-              value={`${(s.bbox.max[0] - s.bbox.min[0]).toFixed(0)} × ${(s.bbox.max[1] - s.bbox.min[1]).toFixed(0)} × ${(s.bbox.max[2] - s.bbox.min[2]).toFixed(0)}`}
-            />
-            <Row label="STEP parse" value={`${s.importMs.toFixed(0)} ms`} />
-            {model?.pickMs !== undefined && (
-              <Row label="pick mesh" value={`${model.pickMs.toFixed(0)} ms`} />
-            )}
-            {model?.parseMs !== undefined && (
-              <Row label="GLB parse" value={`${model.parseMs} ms`} />
-            )}
-          </>
+        {Object.values(ledgers).length > 0 ? (
+          <div className="mt-2 space-y-2">
+            {Object.values(ledgers).filter(l => !selectedSourceId || l.project_id === selectedSourceId).map((l) => (
+              <div key={l.project_id} className="rounded border border-hairline bg-wash p-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={activeLedgerIds.includes(l.project_id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setActiveLedgerIds([...activeLedgerIds, l.project_id]);
+                      } else {
+                        setActiveLedgerIds(activeLedgerIds.filter(id => id !== l.project_id));
+                      }
+                    }}
+                    className="accent-accent"
+                  />
+                  <span className="text-12 font-semibold text-ink-2">
+                    {l.metadata.name || "Untitled Part"}
+                  </span>
+                </div>
+                <fieldset disabled={sourceLoading}>
+                <ParameterEditor ledger={l} />
+                {!l.assembly && <button disabled={promptDisabled} className="my-1 text-11 text-accent disabled:opacity-40"
+                  onClick={() => startFeaturePrompt(l.project_id)}>Add with AI</button>}
+                <FeatureCreate key={`${sessionId}:${revision}:${l.project_id}`} ledger={l} />
+                <PatternControls key={`pattern:${sessionId}:${revision}:${l.project_id}`} ledger={l} />
+                {l.features.length > 0 ? (
+                  <div className="space-y-1.5 pl-4 border-l border-hairline ml-1.5">
+                    {l.features.map(f => (
+                      <div key={f.id} id={`feature-${l.project_id}-${f.id}`} className="rounded bg-chrome px-2 py-1.5 border border-hairline">
+                        <div className="flex items-center justify-between">
+                          <span className="text-11 font-medium text-ink-2">{f.name || f.kind}{f.suppressed ? " (suppressed)" : ""}</span>
+                          <span className="text-9 uppercase tracking-wider text-ink-4">{f.operation}</span>
+                        </div>
+                        <FeatureEditor ledgerId={l.project_id} feature={f} />
+                        {f.kind === "profile" && <SketchEditor ledgerId={l.project_id} feature={f} />}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="pl-4 ml-1.5 text-10 text-ink-4">No features</div>
+                )}
+                </fieldset>
+              </div>
+            ))}
+          </div>
         ) : (
-          kernel.state === "ready" && <div className="text-11 text-ink-4">no STEP loaded</div>
+          kernel.state === "ready" && <div className="text-11 text-ink-4">no components yet</div>
         )}
       </div>
     </aside>

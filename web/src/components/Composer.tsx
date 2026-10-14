@@ -15,8 +15,11 @@
 import { useEffect, useRef, useState } from "react";
 import { imageFilesFrom } from "../lib/image";
 import { useStore } from "../lib/store";
+import { assemblyRows } from "../lib/assembly";
 
-function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selection"]>): string {
+function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selections"][0]>): string {
+  if (sel.saved_reference) return sel.label ?? "Saved surface";
+  if (sel.faceHash === -1) return sel.label ?? "Previous selection";
   const info = sel.info;
   if (!info) return "resolving face…";
   if (info.surfaceType === "cylinder" && info.radius) {
@@ -33,16 +36,56 @@ export function Composer() {
   const addFiles = useStore((s) => s.addFiles);
   const removeAttachment = useStore((s) => s.removeAttachment);
   const submitComposer = useStore((s) => s.submitComposer);
-  const selection = useStore((s) => s.selection);
+  const selections = useStore((s) => s.selections);
+  const newPartName = useStore(s => s.newPartName);
+  const sourceLoading = useStore(s => s.sourceLoading);
+  const selectedSourceId = useStore(s => s.selectedSourceId);
+  const partAvailable = useStore(s => !!s.partCapabilities);
+  const featureTarget = useStore(s => s.featurePromptTarget);
+  const assemblyTarget = useStore(s => s.assemblyPromptTarget);
+  const assemblyBlocked = useStore(s => s.assemblyPromptBlocked);
+  const assemblyCap = useStore(s => s.assemblyPromptCapabilities);
+  const primaryId = useStore(s => s.primaryLedgerId);
+  const featureAvailable = useStore(s => s.featurePromptAvailable);
+  const ledgers = useStore(s => s.ledgers);
+  const clearFeatureTarget = useStore(s => s.startFeaturePrompt);
   const select = useStore((s) => s.select);
 
   const [text, setText] = useState("");
   const [dragging, setDragging] = useState(false);
+  const preview = useStore(s => s.preview);
+  const draft = useStore(s => s.draft);
   const fileRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const previousTarget = useRef(featureTarget);
+  const previousAssemblyTarget = useRef(assemblyTarget);
+  useEffect(() => {
+    if (previousAssemblyTarget.current && !assemblyTarget) setText("");
+    previousAssemblyTarget.current = assemblyTarget;
+  }, [assemblyTarget]);
+
+  useEffect(() => {
+    if (previousTarget.current && !featureTarget) setText("");
+    previousTarget.current = featureTarget;
+  }, [featureTarget]);
 
   const full = attachments.length >= limits.max_images;
-  const canSend = !busy && (text.trim() !== "" || attachments.length > 0);
+  const draftStarting = useStore(s => s.draftStarting);
+  const connection = useStore(s => s.connection);
+  const agentsAvailable = useStore(s => s.agentsAvailable);
+  const canSend = !sourceLoading && (!selectedSourceId || !!featureTarget || !!newPartName) && !busy && !preview && !draft && !draftStarting
+    && !assemblyBlocked
+    && (assemblyTarget ? !!assemblyCap?.available && connection === "open" && text.trim() !== ""
+        && (!attachments.length || assemblyCap.vision_available)
+      : newPartName ? partAvailable && agentsAvailable && connection === "open" && text.trim() !== ""
+      : featureTarget ? featureAvailable && agentsAvailable && connection === "open" && text.trim() !== ""
+      : (text.trim() !== "" || attachments.length > 0));
+
+  useEffect(() => {
+    const revise = (event: Event) => { setText((event as CustomEvent<string>).detail); areaRef.current?.focus(); };
+    window.addEventListener("cadenza:revise", revise);
+    return () => window.removeEventListener("cadenza:revise", revise);
+  }, []);
 
   // Paste is bound to the window, not the textarea: a user who has just dropped
   // a screenshot into the clipboard has not necessarily focused the input, and
@@ -97,7 +140,7 @@ export function Composer() {
   const send = () => {
     if (!canSend) return;
     submitComposer(text);
-    setText("");
+    if (!featureTarget && !newPartName && !assemblyTarget) setText("");
   };
 
   return (
@@ -106,6 +149,33 @@ export function Composer() {
         dragging ? "border-accent bg-accent/10" : "border-hairline"
       }`}
     >
+      {(assemblyTarget || assemblyBlocked) && <div className="mb-2 rounded border border-accent/40 p-2 text-11" role="status">
+        {assemblyTarget ? <>
+          <div>Assembly AI: {ledgers[assemblyTarget.ledgerId]?.metadata.name} / {assemblyTarget.target.kind}</div>
+          <div className="break-all">Owner path: {assemblyTarget.ownerPath.join(" / ") || "Project root"}</div>
+          {assemblyTarget.target.kind === "instance" && <div className="break-all">Instance: {assemblyTarget.target.component_id}<br />
+            Allowed detachments: {assemblyTarget.target.detach_joint_ids?.join(", ") || "None"}</div>}
+          {assemblyTarget.target.kind === "attachment" && <div className="break-all">A: {assemblyTarget.target.component_a}<br />
+            B: {assemblyTarget.target.component_b}<br />Attachment: {assemblyTarget.target.joint_id || "New"}</div>}
+          <p>Shared definition: affects {assemblyTarget.ownerPath.length ? assemblyRows(ledgers, primaryId ?? "").filter(r => r.source?.project_id === assemblyTarget.ledgerId).length : 1} occurrence(s).
+            Use owner-frame millimetres and degrees. Review before Apply.</p>
+          {!!attachments.length && !assemblyCap?.vision_available && <p>Image interpretation is unavailable. Remove images to send text.</p>}
+        </> : <p>The assembly target changed. Select an AI target again.</p>}
+        <button type="button" className="text-accent" disabled={busy || !!preview || !!draft || draftStarting}
+          onClick={() => useStore.getState().startAssemblyPrompt(null)}>Clear assembly mode</button>
+      </div>}
+      {newPartName && <div className="mb-2 rounded border border-accent/40 p-2 text-11" role="status">
+        Create new part: {newPartName}. Existing parts stay unchanged.
+        <button type="button" disabled={busy || !!preview} className="ml-2 text-accent"
+          onClick={() => useStore.getState().startPartPrompt(null)}>Cancel creation mode</button>
+      </div>}
+      {featureTarget && <div className="mb-2 rounded border border-accent/40 p-2 text-11" role="status">
+        <div>{featureTarget.featureId ? "Edit with AI" : "Add with AI"}: {ledgers[featureTarget.ledgerId]?.metadata.name ?? featureTarget.ledgerId}
+          {featureTarget.featureId && ` / ${ledgers[featureTarget.ledgerId]?.features.find(f => f.id === featureTarget.featureId)?.name || featureTarget.featureId}`}</div>
+        <p className="text-10 text-ink-3">Changes update every instance of this source. Describe the intended change; review before Apply.</p>
+        <button disabled={busy || !!preview || !!draft || draftStarting} className="text-accent disabled:opacity-40"
+          onClick={() => clearFeatureTarget(null)}>Clear AI target</button>
+      </div>}
       {dragging && (
         <div className="mb-1.5 rounded-base border border-dashed border-accent px-2 py-3 text-center text-11 text-accent">
           Drop the drawing anywhere
@@ -132,12 +202,12 @@ export function Composer() {
         </div>
       )}
 
-      {selection && (
+      {selections.length > 0 && (
         <div className="mb-1.5 flex items-center justify-between rounded-base border border-accent bg-accent/5 px-2 py-1.5 text-11">
           <div className="flex flex-col gap-0.5 min-w-0">
-            <span className="truncate font-medium text-accent">{describe(selection)}</span>
+            <span className="truncate font-medium text-accent">{describe(selections[0])}</span>
             <span className="font-mono text-10 text-accent/70">
-              {selection.point[0].toFixed(1)}, {selection.point[1].toFixed(1)}, {selection.point[2].toFixed(1)}
+              {selections[0].point[0].toFixed(1)}, {selections[0].point[1].toFixed(1)}, {selections[0].point[2].toFixed(1)}
             </span>
           </div>
           <button
@@ -164,7 +234,9 @@ export function Composer() {
         rows={2}
         maxLength={limits.max_prompt_chars}
         placeholder={
-          selection 
+          assemblyTarget ? "Describe the assembly change in owner-frame mm and degrees"
+          : featureTarget ? "Describe the change, including dimensions and placement"
+          : selections.length > 0
             ? "What should happen to this face?"
             : attachments.length
             ? "Anything to add about the drawing? (optional)"
@@ -202,7 +274,7 @@ export function Composer() {
           disabled={!canSend}
           className="rounded-base bg-accent px-2 py-0.5 text-10 font-medium text-accent-ink disabled:opacity-30"
         >
-          {busy ? "working…" : "Build ⏎"}
+          {busy ? "working…" : (featureTarget || newPartName || assemblyTarget) ? "Preview with AI" : "Build ⏎"}
         </button>
       </div>
     </div>

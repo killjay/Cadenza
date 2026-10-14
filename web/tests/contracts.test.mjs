@@ -1,0 +1,109 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import { loadModule } from "./load-module.mjs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import ts from "typescript";
+
+test("Python serialized frames compile against complete TypeScript shapes", () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const fixtures = JSON.parse(execFileSync(process.env.CADENZA_PYTHON ?? "python",
+    [path.join(root, "shared/contract_fixtures/serialize.py")], { cwd: root, encoding: "utf8" }));
+  const filename = path.join(root, "shared/ts/fixture-check.ts");
+  function diagnostics(data) {
+    const source = `import type { ClientMessage, ServerMessage } from './messages';\nconst clients: ClientMessage[] = ${JSON.stringify(data.client)};\nconst servers: ServerMessage[] = ${JSON.stringify(data.server)};`;
+    const options = { strict: true, noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
+    const host = ts.createCompilerHost(options);
+    const original = host.getSourceFile.bind(host);
+    host.getSourceFile = (name, language, ...args) => path.resolve(name).toLowerCase() === path.resolve(filename).toLowerCase()
+      ? ts.createSourceFile(name, source, language, true) : original(name, language, ...args);
+    return ts.getPreEmitDiagnostics(ts.createProgram([filename], options, host));
+  }
+  const errors = diagnostics(fixtures);
+  assert.equal(errors.length, 0, errors.map(e => ts.flattenDiagnosticMessageText(e.messageText, '\n')).join('\n'));
+  const badAssemblyTarget = structuredClone(fixtures);
+  badAssemblyTarget.client.find(f => f.type === "design.assembly.prompt").target = { kind: "source", ledger_id: "other" };
+  assert.ok(diagnostics(badAssemblyTarget).length > 0, "assembly prompts require a supported explicit target");
+  const missingOwnerPath = structuredClone(fixtures);
+  delete missingOwnerPath.client.find(f => f.type === "design.assembly.prompt").owner_path;
+  assert.ok(diagnostics(missingOwnerPath).length > 0, "assembly prompts require an owner occurrence path");
+  const badCapability = structuredClone(fixtures);
+  badCapability.server.find(f => f.type === "design.capabilities").features[0].kind = "shell";
+  assert.ok(diagnostics(badCapability).length > 0, "capabilities cannot promote shell authoring");
+  const wrongCreation = structuredClone(fixtures);
+  wrongCreation.client.find(f => f.type === "design.command").operations[0].parameters = { length: 10, width: 10, height: 10 };
+  assert.ok(diagnostics(wrongCreation).length > 0, "hole commands cannot carry box parameters");
+  const relativeCreation = structuredClone(fixtures);
+  relativeCreation.client.find(f => f.type === "design.command").operations[0].placement.relative_to = "feat_parent";
+  assert.ok(diagnostics(relativeCreation).length > 0, "B1 creation must use source-local placement");
+  const badSketchDecision = structuredClone(fixtures);
+  badSketchDecision.client.find(f => f.type === "sketch.proposal_decision").action = "apply_to_design";
+  assert.ok(diagnostics(badSketchDecision).length > 0, "sketch proposals cannot directly apply to accepted design");
+  const badDraft = structuredClone(fixtures);
+  badDraft.client.find(f => f.type === "sketch.draft_update").operations[0].op = "arbitrary_patch";
+  assert.ok(diagnostics(badDraft).length > 0, "must reject unknown draft operations");
+  const wrongAlias = structuredClone(fixtures);
+  wrongAlias.client.find(f => f.type === "sketch.draft_update").operations.find(o => o.op === "bind_dimension").constraint_id = { entity_alias: "opening" };
+  assert.ok(diagnostics(wrongAlias).length > 0, "must reject entity aliases as constraint references");
+  const missingDraftRevision = structuredClone(fixtures);
+  delete missingDraftRevision.client.find(f => f.type === "sketch.draft_action").draft_revision;
+  assert.ok(diagnostics(missingDraftRevision).length > 0, "must require draft revision");
+  const badPrompt = structuredClone(fixtures);
+  badPrompt.client.find(f => f.type === "design.prompt").scope = "instance";
+  assert.ok(diagnostics(badPrompt).length > 0, "B3 must restrict source scope");
+  const missingPromptRevision = structuredClone(fixtures);
+  delete missingPromptRevision.client.find(f => f.type === "design.prompt").base_revision;
+  assert.ok(diagnostics(missingPromptRevision).length > 0, "B3 requires a base revision");
+  const malformed = structuredClone(fixtures);
+  assert.equal(fixtures.server.find(frame => frame.type === "session.ready").limits.startup_timeout_s, 60);
+  const badStartup = structuredClone(fixtures);
+  badStartup.server.find(frame => frame.type === "session.ready").limits.startup_timeout_s = "unbounded";
+  assert.ok(diagnostics(badStartup).length > 0, "must reject invalid startup limit types");
+  malformed.server.find(frame => frame.type === "session.ready").revision = "wrong";
+  assert.ok(diagnostics(malformed).length > 0, "must detect field type drift");
+  const missing = structuredClone(fixtures);
+  delete missing.server.find(frame => frame.type === "session.ready").store;
+  assert.ok(diagnostics(missing).length > 0, "must detect missing required fields");
+  const badReference = structuredClone(fixtures);
+  badReference.server.find(frame => frame.type === "session.ready")
+    .store.prj_milestone1.surface_references.ref_plate_top.role = "face_7";
+  assert.ok(diagnostics(badReference).length > 0, "must detect invalid persistent surface roles");
+  const badTarget = structuredClone(fixtures);
+  delete badTarget.client.find(frame => frame.message_id === "msg_surface").targets[0].saved_reference.reference_id;
+  assert.ok(diagnostics(badTarget).length > 0, "must detect incomplete saved edit targets");
+  const badDecision = structuredClone(fixtures);
+  badDecision.client.find(frame => frame.type === "design.preview_decision").action = "commit_anything";
+  assert.ok(diagnostics(badDecision).length > 0, "must reject unknown preview decisions");
+  const badUnit = structuredClone(fixtures);
+  badUnit.server[0].store.prj_parameters.relationships.parameters.plate_width.unit = "cm";
+  assert.ok(diagnostics(badUnit).length > 0, "must reject unknown parameter units");
+  const badBinding = structuredClone(fixtures);
+  badBinding.server[0].store.prj_parameters.relationships.bindings[0].target = "arbitrary_path";
+  assert.ok(diagnostics(badBinding).length > 0, "must restrict binding targets");
+  const badSketch = structuredClone(fixtures);
+  badSketch.server[0].store.prj_sketch.features[0].parameters.solution.status = "assumed_valid";
+  assert.ok(diagnostics(badSketch).length > 0, "must reject unknown sketch solve states");
+  const missingConstraint = structuredClone(fixtures);
+  const badProfileTarget = structuredClone(fixtures);
+  badProfileTarget.client.find(f => f.message_id === "msg_profile_identity").targets[0].surface_reference.entity_id = 7;
+  assert.ok(diagnostics(badProfileTarget).length > 0, "must reject numeric sketch entity identity");
+  delete missingConstraint.client.find(f => f.type === "design.sketch_dimension").constraint_id;
+  assert.ok(diagnostics(missingConstraint).length > 0, "must require sketch constraint identity");
+});
+
+test("shared transport fixtures are recognized by the TypeScript contract", async () => {
+  const contract = await loadModule("../../shared/ts/messages.ts");
+  const fixtureUrl = new URL("../../shared/contract_fixtures/transport.json", import.meta.url);
+  const fixtures = JSON.parse(await fs.readFile(fixtureUrl, "utf8"));
+
+  assert.ok(fixtures.client.every(contract.isClientMessage));
+  assert.ok(contract.isClientMessage({ type: "design.named_parameter" }));
+  assert.ok(contract.isClientMessage({ type: "design.sketch_dimension" }));
+  assert.ok(fixtures.server.every(contract.isServerMessage));
+  assert.equal(contract.isClientMessage({ type: "session.ready" }), false);
+  assert.equal(contract.isServerMessage({ type: "user.prompt" }), false);
+  assert.equal(contract.isServerMessage({ type: "unknown" }), false);
+});

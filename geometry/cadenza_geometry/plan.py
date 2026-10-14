@@ -30,7 +30,7 @@ from cadenza_geometry.gear import (
     undercut_warning,
 )
 
-SUPPORTED_KINDS = {"box", "cylinder", "hole", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "linear_pattern", "circular_pattern", "shell", "revolve", "loft", "extrude"}
+SUPPORTED_KINDS = {"box", "cylinder", "hole", "threaded_hole", "fastener", "gear", "cone", "sphere", "torus", "edge_fillet", "edge_chamfer", "sketch", "profile", "linear_pattern", "circular_pattern", "shell", "revolve", "loft", "extrude"}
 
 # Positive-dimension fields, by feature kind. A gear's `teeth`, `pressure_angle`
 # and `shift` are NOT here: teeth is an integer count, and shift is legitimately
@@ -39,6 +39,8 @@ _SCALARS: dict[str, tuple[str, ...]] = {
     "box": ("length", "width", "height"),
     "cylinder": ("diameter", "height"),
     "hole": ("diameter",),
+    "threaded_hole": ("diameter",),
+    "fastener": ("diameter", "length"),
     "gear": ("module", "height"),
     "cone": ("bottom_diameter", "top_diameter", "height"),
     "sphere": ("diameter",),
@@ -46,6 +48,7 @@ _SCALARS: dict[str, tuple[str, ...]] = {
     "edge_fillet": ("radius",),
     "edge_chamfer": ("width",),
     "sketch": (),
+    "profile": (),
     "linear_pattern": ("spacing",),
     "circular_pattern": (),
     "shell": (),  # thickness can be negative
@@ -147,6 +150,11 @@ class RFeature:
             if not xs or not ys:
                 return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
             return (min(xs), min(ys), 0.0), (max(xs), max(ys), self.p["height"])
+        if self.kind == "profile":
+            outer = self.p["entities"][0]
+            width = outer["width"] if outer["kind"] == "rectangle" else outer["diameter"]
+            height = outer["height"] if outer["kind"] == "rectangle" else outer["diameter"]
+            return (outer["x"] - width / 2, outer["y"] - height / 2, 0.0), (outer["x"] + width / 2, outer["y"] + height / 2, 0.0)
         if self.kind in ("linear_pattern", "circular_pattern", "extrude"):
             return (-1000.0, -1000.0, -1000.0), (1000.0, 1000.0, 1000.0)
         if self.kind == "revolve":
@@ -192,6 +200,49 @@ class BuildPlan:
     def by_id(self, fid: str) -> RFeature | None:
         return next((f for f in self.features if f.id == fid), None)
 
+
+
+@dataclass
+class RPart:
+    id: str
+    name: str
+    features: list[RFeature]
+
+    @property
+    def base(self) -> RFeature:
+        return self.features[0]
+
+@dataclass
+class RComponent:
+    id: str
+    name: str
+    part_id: str | None
+    catalog_sku: str | None
+    origin: tuple[float, float, float]
+    rotation_deg: tuple[float, float, float]
+    sub_assembly: "AssemblyPlan | None" = None
+
+@dataclass
+class RJoint:
+    id: str
+    kind: str
+    component_a: str
+    component_b: str
+    target_a_pt: tuple[float, float, float]
+    target_b_pt: tuple[float, float, float]
+    target_a_norm: tuple[float, float, float] | None = None
+    target_b_norm: tuple[float, float, float] | None = None
+
+@dataclass
+class AssemblyPlan:
+    project_id: str
+    name: str
+    revision: int
+    units: str
+    parts: list[RPart]
+    components: list[RComponent]
+    joints: list[RJoint]
+    warnings: list[str] = field(default_factory=list)
 
 def _as_dict(ledger: Any) -> dict[str, Any]:
     """Normalise pydantic-or-dict to a plain dict. Keeps this package usable
@@ -272,9 +323,107 @@ def _resolve_gear(params: dict[str, Any], p: dict[str, float], fid: str) -> Gear
     )
 
 
-def resolve(ledger: Any) -> BuildPlan:
-    """Ledger -> BuildPlan, or raise GeometryError. Runs the invariant gates."""
+def resolve(ledger: Any, all_ledgers: "dict[str, Any] | None" = None) -> "BuildPlan | AssemblyPlan":
+    """Ledger -> BuildPlan or AssemblyPlan, or raise GeometryError."""
     doc = _as_dict(ledger)
+    from cadenza_contracts.references import validate_references
+    from cadenza_contracts.parameters import materialize
+    try:
+        doc = materialize(doc)
+        validate_references(doc, all_ledgers if all_ledgers is not None else {})
+    except ValueError as exc:
+        raise _err(GeometryErrorCode.INVALID_PARAMETER, str(exc)) from exc
+    meta = doc.get("metadata") or {}
+    
+    assembly_doc = doc.get("assembly")
+    if assembly_doc:
+        return _resolve_assembly(doc, assembly_doc, meta, all_ledgers)
+    
+    return _resolve_single_part(doc, meta)
+
+def _resolve_assembly(doc: dict[str, Any], assembly_doc: dict[str, Any], meta: dict[str, Any], all_ledgers: "dict[str, Any] | None" = None) -> AssemblyPlan:
+    project_id = doc.get("project_id") or "prj_unknown"
+    name = meta.get("name") or "Untitled Assembly"
+    revision = int(doc.get("revision") or 0)
+    units = meta.get("global_units") or "mm"
+    
+    parts = []
+    components = []
+    joints = []
+    
+    for rp in assembly_doc.get("parts", []):
+        raw_feats = rp.get("features", [])
+        # We can reuse the feature parser logic by simulating a single part doc
+        part_doc = {"features": raw_feats, "metadata": {"name": rp.get("name", "")}}
+        part_plan = _resolve_single_part(part_doc, part_doc["metadata"])
+        parts.append(RPart(id=rp.get("id", ""), name=rp.get("name", ""), features=part_plan.features))
+        
+    for rc in assembly_doc.get("components", []):
+        plc = rc.get("placement", {})
+        origin = _vec3(plc.get("origin"), (0.0, 0.0, 0.0), rc.get("id", ""), "placement.origin")
+        rot = _vec3(plc.get("rotation_deg"), (0.0, 0.0, 0.0), rc.get("id", ""), "placement.rotation_deg")
+        sub_assembly_id = rc.get("sub_assembly_id")
+        sub_assembly_plan = None
+        
+        if sub_assembly_id and all_ledgers and sub_assembly_id in all_ledgers:
+            sub_ledger = all_ledgers[sub_assembly_id]
+            resolved_sub = resolve(sub_ledger, all_ledgers)
+            if isinstance(resolved_sub, AssemblyPlan):
+                sub_assembly_plan = resolved_sub
+            else:
+                # If the sub-ledger is a single part, wrap it in a mock AssemblyPlan so RComponent works
+                # Or wait, what does the kernel do? Let's check how build123d backend expects it
+                # It expects sub_assembly to be AssemblyPlan. Let's wrap it.
+                sub_assembly_plan = AssemblyPlan(
+                    project_id=resolved_sub.project_id,
+                    name=resolved_sub.name,
+                    revision=resolved_sub.revision,
+                    units=resolved_sub.units,
+                    parts=[RPart(id="sub_part", name=resolved_sub.name, features=resolved_sub.features)],
+                    components=[RComponent(id="sub_comp", name=resolved_sub.name, part_id="sub_part", catalog_sku=None, origin=(0.0,0.0,0.0), rotation_deg=(0.0,0.0,0.0))],
+                    joints=[]
+                )
+        
+        components.append(RComponent(
+            id=rc.get("id", ""),
+            name=rc.get("name", ""),
+            part_id=rc.get("part_id"),
+            catalog_sku=rc.get("catalog_sku"),
+            origin=origin,
+            rotation_deg=rot,
+            sub_assembly=sub_assembly_plan
+        ))
+        
+    for rj in assembly_doc.get("joints", []):
+        ta = rj.get("target_a", {})
+        tb = rj.get("target_b", {})
+        fid = rj.get("id", "")
+        if ta.get("reference_feature") or tb.get("reference_feature"):
+            raise GeometryError(GeometryErrorCode.UNSUPPORTED_FEATURE,
+                "Feature-bound joint anchors are not implemented; use explicit assembly-space coordinates", fid)
+        joints.append(RJoint(
+            id=fid,
+            kind=rj.get("kind", "rigid"),
+            component_a=rj.get("component_a", ""),
+            component_b=rj.get("component_b", ""),
+            target_a_pt=_vec3(ta.get("point"), (0.0, 0.0, 0.0), fid, "target_a.point"),
+            target_b_pt=_vec3(tb.get("point"), (0.0, 0.0, 0.0), fid, "target_b.point"),
+            target_a_norm=_vec3(ta.get("normal"), (0.0, 0.0, 1.0), fid, "target_a.normal") if ta.get("normal") else None,
+            target_b_norm=_vec3(tb.get("normal"), (0.0, 0.0, 1.0), fid, "target_b.normal") if tb.get("normal") else None,
+        ))
+        
+    return AssemblyPlan(
+        project_id=project_id,
+        name=name,
+        revision=revision,
+        units=units,
+        parts=parts,
+        components=components,
+        joints=joints
+    )
+
+def _resolve_single_part(doc: dict[str, Any], meta: dict[str, Any]) -> BuildPlan:
+    """Ledger -> BuildPlan, or raise GeometryError. Runs the invariant gates."""
     raw_features = doc.get("features", [])
     if not isinstance(raw_features, list):
         raise _err(GeometryErrorCode.INVALID_PARAMETER, "`features` must be an array")
@@ -333,6 +482,15 @@ def resolve(ledger: Any) -> BuildPlan:
         elif kind == "shell":
             p["thickness"] = float(params.get("thickness", 0.0))
             p["open_faces"] = params.get("open_faces", [])
+        elif kind == "profile":
+            from cadenza_contracts.profiles import ProfileParameters, validate_profile_region
+            try:
+                profile = ProfileParameters.model_validate(params)
+                assert profile.solution is not None
+                validate_profile_region(profile.solution)
+            except ValueError as exc:
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, str(exc), fid) from exc
+            p["entities"] = [e.model_dump(mode="json") for e in profile.solution.entities]
         elif kind == "sketch":
             p["vertices"] = params.get("vertices", [])
             p["edges"] = params.get("edges", [])
@@ -347,7 +505,7 @@ def resolve(ledger: Any) -> BuildPlan:
         placement = raw.get("placement") or {}
         origin = _vec3(placement.get("origin"), (0.0, 0.0, 0.0), fid, "placement.origin")
         
-        if kind == "hole" and "direction" in placement:
+        if kind in ("hole", "threaded_hole") and "direction" in placement:
             direction = _vec3(placement.get("direction"), (0.0, 0.0, -1.0), fid, "placement.direction")
             if direction == (0.0, 0.0, 0.0):
                 raise _err(GeometryErrorCode.INVALID_PARAMETER, "`direction` cannot be zero", fid)
@@ -366,7 +524,7 @@ def resolve(ledger: Any) -> BuildPlan:
         relative_to = placement.get("relative_to")
 
         through, depth = False, None
-        if kind == "hole":
+        if kind in ("hole", "threaded_hole"):
             through = bool(params.get("through", True))
             if not through:
                 d = params.get("depth")
@@ -389,6 +547,8 @@ def resolve(ledger: Any) -> BuildPlan:
         elif kind == "sketch":
             p["draft_angle"] = float(params.get("draft_angle", 0.0))
             p["height"] = float(params.get("height", 0.0))
+            if not math.isfinite(p["height"]) or p["height"] < 0 or not math.isfinite(p["draft_angle"]):
+                raise _err(GeometryErrorCode.INVALID_PARAMETER, "Sketch height must be finite and nonnegative; draft must be finite", fid)
             if not p["vertices"] and not p["edges"]:
                 raise _err(GeometryErrorCode.INVALID_PARAMETER, "sketch requires vertices or edges", fid)
             if not p["edges"] and (not p["vertices"] or len(p["vertices"]) < 3):
@@ -404,6 +564,13 @@ def resolve(ledger: Any) -> BuildPlan:
             p["target_feature"] = str(target)
             p["twist"] = float(params.get("twist", 0.0))
             p["taper"] = float(params.get("taper", 0.0))
+            if not math.isfinite(p["taper"]) or not math.isfinite(p["twist"]) or p["twist"] != 0:
+                raise _err(GeometryErrorCode.UNSUPPORTED_FEATURE, "Twisted extrusion is not supported; taper must be finite", fid)
+            source = next((f for f in feats if f.id == target), None)
+            if source is not None and source.kind == "profile":
+                if origin != (0.0, 0.0, 0.0) or rot != (0.0, 0.0, 0.0) or relative_to:
+                    raise _err(GeometryErrorCode.INVALID_PARAMETER, "Move the sketch plane, not its extrusion", fid)
+                p["profile_normal"] = True
         elif kind == "revolve":
             p["angle"] = float(params.get("angle", 360.0))
             p["axis"] = _vec3(params.get("axis"), (0.0, 1.0, 0.0), fid, "axis")
@@ -436,8 +603,8 @@ def resolve(ledger: Any) -> BuildPlan:
         if kind == "gear":
             gear = _resolve_gear(params, p, fid)
 
-        op = raw.get("operation") or ("modify" if kind == "shell" else "subtract" if kind == "hole" else "add")
-        if kind == "hole" and op != "subtract":
+        op = raw.get("operation") or ("modify" if kind == "shell" else "subtract" if kind in ("hole", "threaded_hole") else "add")
+        if kind in ("hole", "threaded_hole") and op != "subtract":
             raise _err(
                 GeometryErrorCode.INVALID_PARAMETER, f"a hole cannot have operation={op!r}", fid
             )
@@ -508,7 +675,7 @@ def _validate(plan: BuildPlan) -> None:
             base.id,
             detail="reorder features so a solid exists before anything cuts into it",
         )
-    if base.kind == "hole":
+    if base.kind in ("hole", "threaded_hole"):
         raise _err(
             GeometryErrorCode.INVALID_PARAMETER,
             f"the first live feature is a hole ({base.id!r}) — there is nothing to cut",
@@ -545,7 +712,7 @@ def _validate(plan: BuildPlan) -> None:
                 plan.warnings.append(note)
 
     for f in plan.features:
-        if f.kind != "hole":
+        if f.kind not in ("hole", "threaded_hole"):
             continue
         # A hole is located by its axis. If the axis passes nowhere near the
         # additive envelope the cut is a no-op and the user gets a silently

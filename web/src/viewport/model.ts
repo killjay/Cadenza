@@ -29,7 +29,7 @@ export interface LoadedModel {
   parseMs: number;
 }
 
-function disposeSubtree(root: THREE.Object3D): void {
+export function disposeSubtree(root: THREE.Object3D): void {
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
@@ -38,6 +38,17 @@ function disposeSubtree(root: THREE.Object3D): void {
     else if (mat) (mat as THREE.Material).dispose();
   });
   root.removeFromParent();
+}
+
+function stringToColor(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash) % 360;
+  const s = 60 + (Math.abs(hash) % 20);
+  const l = 40 + (Math.abs(hash >> 8) % 20);
+  return new THREE.Color().setHSL(h / 360, s / 100, l / 100).getHex();
 }
 
 export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
@@ -59,19 +70,25 @@ export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
           const index = mesh.geometry.getIndex();
           triangleCount += (index ? index.count : mesh.geometry.getAttribute("position").count) / 3;
 
-          // OCCT writes doubleSided glTF. Honour it — a plate seen from below
-          // should not vanish — but a part is a closed solid, so front-face
-          // culling costs nothing and cleans up the shading.
           const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          const newMats = [];
           for (const m of mats) {
-            const std = m as THREE.MeshStandardMaterial;
+            const std = (m as THREE.MeshStandardMaterial).clone();
             std.side = THREE.FrontSide;
             std.envMapIntensity = 1.0;
-            // Anything the geometry service sends with default PBR reads as
-            // plastic. Nudge it toward machined aluminium.
             if (std.metalness !== undefined && std.metalness < 0.05) std.metalness = 0.25;
             if (std.roughness !== undefined && std.roughness > 0.9) std.roughness = 0.45;
+
+            // Assign a unique color per component (or feature), unless it's a hole or unattributed
+            const componentId = mesh.userData?.component_id as string | undefined;
+            const featureId = mesh.userData?.feature_id as string | undefined;
+            const colorSource = componentId || featureId;
+            if (colorSource && !colorSource.includes("_hole_") && colorSource !== "_unattributed") {
+              std.color.setHex(stringToColor(colorSource));
+            }
+            newMats.push(std);
           }
+          mesh.material = newMats.length === 1 ? newMats[0] : newMats;
         });
 
         root.updateMatrixWorld(true);

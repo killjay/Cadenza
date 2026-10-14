@@ -60,8 +60,12 @@ PATCH_OP_SCHEMA = {
             "type": "string",
             "description": "Source pointer, for move/copy only.",
         },
+        "ledger_id": {
+            "type": "string",
+            "description": "The ID of the ledger to apply this patch to.",
+        },
     },
-    "required": ["op", "path"],
+    "required": ["op", "path", "ledger_id"],
 }
 
 MACHINIST_OUTPUT_SCHEMA = {
@@ -113,6 +117,9 @@ MACHINIST_OUTPUT_SCHEMA = {
 }
 
 
+from cadenza_backend.agents.parameter_instructions import PARAMETER_INSTRUCTIONS
+from cadenza_backend.agents.profile_instructions import PROFILE_INSTRUCTIONS
+
 MACHINIST_SYSTEM = """\
 You are the Machinist in CADenza, a natural-language CAD system. You edit an existing \
 part by emitting JSON Patch (RFC 6902) operations against a JSON ledger. You never write \
@@ -122,8 +129,8 @@ THE LEDGER
 The ledger is the single source of truth. Its shape:
   - `features`: an ORDERED array. Order is build order and matters for booleans.
     The first non-suppressed feature must be additive (`operation: "add"`).
-  - Each feature has: `id`, `name`, `kind` ("box" | "cylinder" | "hole" | "gear" | "cone" | "sphere" | "torus" | "sketch" | "linear_pattern" | "circular_pattern"),
-    `operation` ("add" | "subtract"), `parameters`, `placement`, `suppressed`,
+  - Each feature has: `id`, `name`, `kind` ("box" | "cylinder" | "hole" | "gear" | "cone" | "sphere" | "torus" | "sketch" | "linear_pattern" | "circular_pattern" | "shell" | "revolve" | "loft" | "extrude" | "threaded_hole" | "fastener"),
+    `operation` ("add" | "subtract" | "modify"), `parameters`, `placement`, `suppressed`,
     `ai_context`.
   - Parameters by kind:
       box      -> length (+X), width (+Y), height (+Z), draft_angle (optional), through (optional bool)
@@ -138,6 +145,12 @@ The ledger is the single source of truth. Its shape:
       sketch       -> vertices (array of [x,y]), height (+Z), draft_angle (optional)
       linear_pattern   -> target_feature (string ID), count, spacing, axis ([x,y,z] vector)
       circular_pattern -> target_feature (string ID), count, sweep_angle
+      shell        -> thickness, open_faces (list of strings)
+      revolve      -> vertices (list of [x,y]), angle, axis ([x,y,z])
+      loft         -> sections (list of dicts)
+      extrude      -> target_feature, amount, twist, taper
+      threaded_hole -> designation, diameter, through, depth, pitch (optional)
+      fastener      -> designation, diameter, length, head_type (socket|hex|flat|button)
   - `placement.origin` is [x, y, z]. For box, cylinder, gear and sketch it is the CENTRE of
     the footprint with z at the BASE of the solid. For a hole it is where the hole
     axis meets the face being cut, and the hole runs along -Z. For a linear_pattern,
@@ -208,34 +221,49 @@ hardware (e.g., "change to an M8 bolt hole" or "add clearance for M6 socket head
 do NOT guess the dimensions. You MUST use the tool to fetch the exact clearance, tap drill,
 and counterbore sizes before generating the patch. Do this for all metric socket head screws requested.
 
-MATH SANDBOX
-You have access to a `math_sandbox` tool. ALWAYS use it to calculate coordinates for patterns, 
-bolt circles, arrays, or trigonometry. Do NOT try to calculate trigonometry or array coordinates 
-in your head—you will fail and hallucinate incorrect dimensions. Write a small python script 
-and use the pre-packaged helper functions (e.g. `result = bolt_circle(40, 6)`) to get perfect 
-coordinates before you place the features.
-"""
+GEOMETRY MATH
+Use `math_sandbox` with a named operation and numeric arguments for pattern coordinates,
+gear spacing, and trigonometry. Example: {"operation": "bolt_circle", "arguments":
+{"radius": 40, "count": 6}}. Only operations in the tool schema are supported; no Python
+scripts or expressions. Each result is limited to 1024 points. Tool errors require
+corrected arguments, not invented coordinates. Bearing allowances are illustrative,
+not standards-based fits; pitch geometry alone does not establish a working gearbox.
+
+SAVED SURFACE REFERENCES
+The geometry_probe tool can capture_surface_reference using the server-resolved selected
+point and normal in the named ledger's coordinates. Do not invent capture coordinates
+or use an uncertain selection without clarification. Only status="resolved" yields a usable selector.
+When the user asks to remember a surface, store the returned reference unchanged at
+`/surface_references/ref_<name>` in its owner ledger using the usual patch transaction.
+Use resolve_surface_reference with reference_id to inspect a saved reference before
+using it after an edit. Missing, ambiguous or unsupported results require repair or
+clarification; never fall back to an old point or invent a surface selector. Stored
+references are annotations, not automatic mates or feature dependencies.
+""" + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS
 
 
 def build_machinist_user_message(
-    ledger: Ledger,
+    ledgers: dict[str, Ledger],
     prompt: str,
     semantic_context: str,
 ) -> str:
+    ledgers_json = "\n\n".join(f"LEDGER {lid}:\n{l.model_dump_json(indent=2)}" for lid, l in ledgers.items())
     return (
-        f"CURRENT LEDGER:\n{ledger.model_dump_json(indent=2)}\n\n"
+        f"CURRENT LEDGERS:\n{ledgers_json}\n\n"
         f"WHAT THE USER SELECTED:\n{semantic_context}\n\n"
         f"USER INSTRUCTION:\n{prompt}\n\n"
-        "Emit the JSON Patch that carries out this instruction."
+        "Emit the JSON Patch that carries out this instruction. You MUST specify the `ledger_id` in each patch operation if there are multiple ledgers."
     )
 
 
 async def run_machinist(
-    ledger: Ledger,
+    ledgers: dict[str, Ledger],
     prompt: str,
     semantic_context: str,
     *,
     client: ModelClient | None = None,
+    all_ledgers: dict[str, Ledger] | None = None,
+    images: list[tuple[str, bytes]] | None = None,
 ) -> AgentPatchOutput:
     """Call the model and return a validated patch payload.
 
@@ -249,7 +277,12 @@ async def run_machinist(
 
     card = AgentCard(
         name="Machinist",
-        system_prompt=MACHINIST_SYSTEM,
+        system_prompt=MACHINIST_SYSTEM + ("\n\nDRAWING-ASSISTED EDIT\n"
+            "Use the attached images together with the instruction, current ledgers and selected feature context. "
+            "Edit the existing design using the requested drawing dimensions; preserve unrelated geometry and IDs. "
+            "Do not treat the drawing as a replacement part by default. Do not infer exact dimensions from pixel scale. "
+            "If a required dimension is unreadable or conflicts with the instruction, ask one specific question in "
+            "needs_clarification and return an empty patch." if images else ""),
         output_schema=MACHINIST_OUTPUT_SCHEMA,
         tools=["lookup_hardware_dimensions", "math_sandbox", "geometry_probe"]
     )
@@ -257,9 +290,10 @@ async def run_machinist(
     raw = await client.complete_json(
         stage="machinist",
         agent_card=card,
-        user=build_machinist_user_message(ledger, prompt, semantic_context),
+        user=build_machinist_user_message(ledgers, prompt, semantic_context),
         effort=settings.machinist_effort,
-        context={"ledger": ledger}
+        images=images,
+        context={"ledgers": ledgers, "all_ledgers": all_ledgers if all_ledgers is not None else ledgers}
     )
 
     try:

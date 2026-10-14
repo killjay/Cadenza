@@ -36,6 +36,7 @@ export default defineConfig({
       // Dev A's FastAPI app. `ws: true` so /ws upgrades are proxied too.
       "/ws": { target: "ws://localhost:8000", ws: true },
       "/api": { target: "http://localhost:8000", changeOrigin: true },
+      "/sessions": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
 });

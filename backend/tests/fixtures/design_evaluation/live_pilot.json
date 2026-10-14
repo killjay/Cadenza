@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "naming_policy": "explicit_names_exact",
+  "tasks": [
+    {
+      "case_id": "NP01",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "name": "Created",
+            "prompt": "Create a box feature named Stock, length X 20 mm, width Y 10 mm, height Z 5 mm; origin (0,0,0), rotation (0,0,0)."
+          },
+          "followup": "Use these exact requirements: Create a box feature named Stock, length X 20 mm, width Y 10 mm, height Z 5 mm; origin (0,0,0), rotation (0,0,0)."
+        },
+        {
+          "oracle_step": 1,
+          "request": {
+            "ledger_id": "created",
+            "scope": "source",
+            "feature_id": "feat_created_stock",
+            "prompt": "Set height to 6 mm"
+          }
+        },
+        {
+          "oracle_step": 2,
+          "request": {
+            "ledger_id": "root",
+            "owner_path": [],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "definition"
+            },
+            "prompt": "Start assembly named Sequence assembly using the accepted Created source. Name the instance Created instance; origin (0,0,0), rotation (0,0,0)."
+          }
+        },
+        {
+          "oracle_step": 3,
+          "request": {
+            "ledger_id": "root",
+            "owner_path": [],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "instance",
+              "component_id": "comp_created"
+            },
+            "prompt": "Set X to 30 mm"
+          }
+        },
+        {
+          "oracle_step": 4,
+          "request": {
+            "ledger_id": "root",
+            "owner_path": [],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "instance",
+              "component_id": "comp_created"
+            },
+            "prompt": "Set X to 40 mm"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "NP03",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "name": "Created",
+            "prompt": "Make a box"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "SP01",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "plate",
+            "scope": "source",
+            "feature_id": "feat_stock",
+            "prompt": "Set height to 10 mm"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "SP02",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "plate",
+            "scope": "source",
+            "prompt": "Add a subtractive through hole named Seed, diameter 6 mm, opening (20,0,8), rotation (0,0,0). Preserve all existing features."
+          },
+          "followup": "Use these exact requirements: Add a subtractive through hole named Seed, diameter 6 mm, opening (20,0,8), rotation (0,0,0). Preserve all existing features."
+        }
+      ]
+    },
+    {
+      "case_id": "SP03",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "plate",
+            "scope": "source",
+            "prompt": "Create a linear pattern named Row from feat_seed with total count 3, spacing 10 mm along -X"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "SP06",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "plate",
+            "scope": "source",
+            "prompt": "Make it bigger"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "AS01",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "root",
+            "owner_path": [],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "definition"
+            },
+            "prompt": "Start assembly named Started with Source 0. Name its instance First; origin (0,0,0), rotation (0,0,0)."
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "AS03",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "module",
+            "owner_path": [
+              "comp_first"
+            ],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "instance",
+              "component_id": "comp_c"
+            },
+            "prompt": "Set selected C origin to (105,0,0) mm and absolute rotation to (0,0,90) degrees. Preserve everything else."
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "AS07",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "module",
+            "owner_path": [
+              "comp_first"
+            ],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "instance",
+              "component_id": "comp_b",
+              "detach_joint_ids": [
+                "joint_existing"
+              ]
+            },
+            "prompt": "Detach and set X to 35 mm"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "AS09",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "ledger_id": "root",
+            "owner_path": [],
+            "scope": "assembly_definition",
+            "target": {
+              "kind": "definition"
+            },
+            "prompt": "Create a subassembly definition named \"New module\" containing one instance of the accepted source \"Source 0\", with the child instance named \"Child\" at origin (0,0,0) mm and rotation (0,0,0) degrees. Add one instance of this new definition to the selected root assembly, with the exact instance name \"New module instance\", at origin (400,0,0) mm and rotation (0,0,0) degrees."
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "IMG01",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "name": "Created",
+            "prompt": "Create a box feature named Stock using the dimensions in this drawing; origin (0,0,0), rotation (0,0,0). Ask if a required dimension cannot be read."
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "IMG03",
+      "turns": [
+        {
+          "oracle_step": 0,
+          "request": {
+            "name": "Created",
+            "prompt": "Create this part from the drawing"
+          }
+        }
+      ]
+    }
+  ]
+}

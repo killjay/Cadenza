@@ -1,0 +1,3369 @@
+{
+  "version": 2,
+  "label_status": "Implementation-authored; human label and clarification review pending",
+  "holdout_policy": "Every fourth case reserved before interpreter changes; no live tuning or live calls performed",
+  "contexts": {
+    "plate": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_sketch",
+        "features": [
+          {
+            "id": "feat_profile",
+            "name": "Plate sketch",
+            "kind": "profile",
+            "operation": "add",
+            "parameters": {
+              "entities": [
+                {
+                  "id": "ent_plate",
+                  "kind": "rectangle",
+                  "operation": "add",
+                  "width": 100,
+                  "height": 60
+                },
+                {
+                  "id": "ent_bore",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "diameter": 20
+                }
+              ],
+              "constraints": [
+                {
+                  "id": "con_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "x",
+                  "value": 0
+                },
+                {
+                  "id": "con_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "y",
+                  "value": 0
+                },
+                {
+                  "id": "con_width",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "width",
+                  "value": 100
+                },
+                {
+                  "id": "con_height",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "height",
+                  "value": 60
+                },
+                {
+                  "id": "con_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "diameter",
+                  "value": 20
+                },
+                {
+                  "id": "con_center",
+                  "kind": "coincident",
+                  "entity_a": "ent_plate",
+                  "entity_b": "ent_bore"
+                }
+              ]
+            }
+          },
+          {
+            "id": "feat_extrusion",
+            "name": "Plate extrusion",
+            "kind": "extrude",
+            "operation": "add",
+            "parameters": {
+              "target_feature": "feat_profile",
+              "amount": 8
+            }
+          }
+        ],
+        "relationships": {
+          "parameters": {
+            "plate_width": {
+              "unit": "mm",
+              "value": 100
+            },
+            "bore_diameter": {
+              "unit": "mm",
+              "value": 20
+            },
+            "thickness": {
+              "unit": "mm",
+              "value": 8
+            }
+          },
+          "bindings": [
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_width",
+              "target": "value",
+              "expression": "plate_width"
+            },
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_diameter",
+              "target": "value",
+              "expression": "bore_diameter"
+            },
+            {
+              "feature_id": "feat_extrusion",
+              "target": "amount",
+              "expression": "thickness"
+            }
+          ]
+        }
+      },
+      "profile_id": "feat_profile",
+      "reference": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 20
+          }
+        },
+        "dimensions": {
+          "ent_plate": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "ent_bore": [
+            "diameter"
+          ]
+        },
+        "centres": [
+          [
+            "ent_bore",
+            "ent_plate"
+          ]
+        ],
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 100
+          },
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 20
+          },
+          "thickness": {
+            "unit": "mm",
+            "value": 8
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.diameter",
+            "bore_diameter"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "rotation_deg": [
+            0,
+            0,
+            0
+          ],
+          "relative_to": null
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 8,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    },
+    "free": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_sketch",
+        "features": [
+          {
+            "id": "feat_profile",
+            "name": "Plate sketch",
+            "kind": "profile",
+            "operation": "add",
+            "parameters": {
+              "entities": [
+                {
+                  "id": "ent_plate",
+                  "kind": "rectangle",
+                  "operation": "add",
+                  "width": 100,
+                  "height": 60
+                },
+                {
+                  "id": "ent_bore",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "diameter": 20
+                }
+              ],
+              "constraints": [
+                {
+                  "id": "con_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "x",
+                  "value": 0
+                },
+                {
+                  "id": "con_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "y",
+                  "value": 0
+                },
+                {
+                  "id": "con_width",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "width",
+                  "value": 100
+                },
+                {
+                  "id": "con_height",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "height",
+                  "value": 60
+                },
+                {
+                  "id": "con_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "diameter",
+                  "value": 20
+                },
+                {
+                  "id": "con_bore_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "x",
+                  "value": 25
+                },
+                {
+                  "id": "con_bore_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "y",
+                  "value": 0
+                }
+              ]
+            }
+          },
+          {
+            "id": "feat_extrusion",
+            "name": "Plate extrusion",
+            "kind": "extrude",
+            "operation": "add",
+            "parameters": {
+              "target_feature": "feat_profile",
+              "amount": 8
+            }
+          }
+        ],
+        "relationships": {
+          "parameters": {
+            "plate_width": {
+              "unit": "mm",
+              "value": 100
+            },
+            "bore_diameter": {
+              "unit": "mm",
+              "value": 20
+            },
+            "thickness": {
+              "unit": "mm",
+              "value": 8
+            }
+          },
+          "bindings": [
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_width",
+              "target": "value",
+              "expression": "plate_width"
+            },
+            {
+              "feature_id": "feat_extrusion",
+              "target": "amount",
+              "expression": "thickness"
+            }
+          ]
+        }
+      },
+      "profile_id": "feat_profile",
+      "reference": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 25,
+            "y": 0,
+            "diameter": 20
+          }
+        },
+        "dimensions": {
+          "ent_plate": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "ent_bore": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        },
+        "centres": [],
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 100
+          },
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 20
+          },
+          "thickness": {
+            "unit": "mm",
+            "value": 8
+          }
+        },
+        "bindings": [
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "rotation_deg": [
+            0,
+            0,
+            0
+          ],
+          "relative_to": null
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 8,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    },
+    "offset": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_sketch",
+        "features": [
+          {
+            "id": "feat_profile",
+            "name": "Plate sketch",
+            "kind": "profile",
+            "operation": "add",
+            "parameters": {
+              "entities": [
+                {
+                  "id": "ent_plate",
+                  "kind": "rectangle",
+                  "operation": "add",
+                  "width": 100,
+                  "height": 60
+                },
+                {
+                  "id": "ent_bore",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "diameter": 20
+                }
+              ],
+              "constraints": [
+                {
+                  "id": "con_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "x",
+                  "value": 10
+                },
+                {
+                  "id": "con_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "y",
+                  "value": 5
+                },
+                {
+                  "id": "con_width",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "width",
+                  "value": 100
+                },
+                {
+                  "id": "con_height",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "height",
+                  "value": 60
+                },
+                {
+                  "id": "con_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "diameter",
+                  "value": 20
+                },
+                {
+                  "id": "con_center",
+                  "kind": "coincident",
+                  "entity_a": "ent_plate",
+                  "entity_b": "ent_bore"
+                }
+              ]
+            },
+            "placement": {
+              "origin": [
+                12,
+                -7,
+                30
+              ],
+              "rotation_deg": [
+                0,
+                0,
+                0
+              ],
+              "relative_to": null
+            }
+          },
+          {
+            "id": "feat_extrusion",
+            "name": "Plate extrusion",
+            "kind": "extrude",
+            "operation": "add",
+            "parameters": {
+              "target_feature": "feat_profile",
+              "amount": 8
+            }
+          }
+        ],
+        "relationships": {
+          "parameters": {
+            "plate_width": {
+              "unit": "mm",
+              "value": 100
+            },
+            "bore_diameter": {
+              "unit": "mm",
+              "value": 20
+            },
+            "thickness": {
+              "unit": "mm",
+              "value": 8
+            }
+          },
+          "bindings": [
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_width",
+              "target": "value",
+              "expression": "plate_width"
+            },
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_diameter",
+              "target": "value",
+              "expression": "bore_diameter"
+            },
+            {
+              "feature_id": "feat_extrusion",
+              "target": "amount",
+              "expression": "thickness"
+            }
+          ]
+        }
+      },
+      "profile_id": "feat_profile",
+      "reference": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 5,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 10,
+            "y": 5,
+            "diameter": 20
+          }
+        },
+        "dimensions": {
+          "ent_plate": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "ent_bore": [
+            "diameter"
+          ]
+        },
+        "centres": [
+          [
+            "ent_bore",
+            "ent_plate"
+          ]
+        ],
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 100
+          },
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 20
+          },
+          "thickness": {
+            "unit": "mm",
+            "value": 8
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.diameter",
+            "bore_diameter"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            12,
+            -7,
+            30
+          ],
+          "rotation_deg": [
+            0,
+            0,
+            0
+          ],
+          "relative_to": null
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 8,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    },
+    "rotated": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_sketch",
+        "features": [
+          {
+            "id": "feat_profile",
+            "name": "Plate sketch",
+            "kind": "profile",
+            "operation": "add",
+            "parameters": {
+              "entities": [
+                {
+                  "id": "ent_plate",
+                  "kind": "rectangle",
+                  "operation": "add",
+                  "width": 100,
+                  "height": 60
+                },
+                {
+                  "id": "ent_bore",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "diameter": 20
+                }
+              ],
+              "constraints": [
+                {
+                  "id": "con_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "x",
+                  "value": 10
+                },
+                {
+                  "id": "con_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "y",
+                  "value": 5
+                },
+                {
+                  "id": "con_width",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "width",
+                  "value": 100
+                },
+                {
+                  "id": "con_height",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "height",
+                  "value": 60
+                },
+                {
+                  "id": "con_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_bore",
+                  "parameter": "diameter",
+                  "value": 20
+                },
+                {
+                  "id": "con_center",
+                  "kind": "coincident",
+                  "entity_a": "ent_plate",
+                  "entity_b": "ent_bore"
+                }
+              ]
+            },
+            "placement": {
+              "origin": [
+                12,
+                -7,
+                30
+              ],
+              "rotation_deg": [
+                25,
+                40,
+                15
+              ],
+              "relative_to": null
+            }
+          },
+          {
+            "id": "feat_extrusion",
+            "name": "Plate extrusion",
+            "kind": "extrude",
+            "operation": "add",
+            "parameters": {
+              "target_feature": "feat_profile",
+              "amount": 8
+            }
+          }
+        ],
+        "relationships": {
+          "parameters": {
+            "plate_width": {
+              "unit": "mm",
+              "value": 100
+            },
+            "bore_diameter": {
+              "unit": "mm",
+              "value": 20
+            },
+            "thickness": {
+              "unit": "mm",
+              "value": 8
+            }
+          },
+          "bindings": [
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_width",
+              "target": "value",
+              "expression": "plate_width"
+            },
+            {
+              "feature_id": "feat_profile",
+              "constraint_id": "con_diameter",
+              "target": "value",
+              "expression": "bore_diameter"
+            },
+            {
+              "feature_id": "feat_extrusion",
+              "target": "amount",
+              "expression": "thickness"
+            }
+          ]
+        }
+      },
+      "profile_id": "feat_profile",
+      "reference": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 5,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 10,
+            "y": 5,
+            "diameter": 20
+          }
+        },
+        "dimensions": {
+          "ent_plate": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "ent_bore": [
+            "diameter"
+          ]
+        },
+        "centres": [
+          [
+            "ent_bore",
+            "ent_plate"
+          ]
+        ],
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 100
+          },
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 20
+          },
+          "thickness": {
+            "unit": "mm",
+            "value": 8
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.diameter",
+            "bore_diameter"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            12,
+            -7,
+            30
+          ],
+          "rotation_deg": [
+            25,
+            40,
+            15
+          ],
+          "relative_to": null
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 8,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    },
+    "empty": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_empty",
+        "features": []
+      },
+      "reference": {
+        "entities": {},
+        "dimensions": {},
+        "centres": [],
+        "parameters": {},
+        "bindings": [],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "rotation_deg": [
+            0,
+            0,
+            0
+          ],
+          "relative_to": null
+        },
+        "consumers": {}
+      }
+    },
+    "margins": {
+      "ledger": {
+        "schema_version": 1,
+        "project_id": "prj_sketch",
+        "features": [
+          {
+            "id": "feat_profile",
+            "name": "Plate sketch",
+            "kind": "profile",
+            "operation": "add",
+            "parameters": {
+              "entities": [
+                {
+                  "id": "ent_plate",
+                  "kind": "rectangle",
+                  "operation": "add",
+                  "x": 0,
+                  "y": 0,
+                  "width": 100,
+                  "height": 60
+                },
+                {
+                  "id": "ent_left",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "x": -35,
+                  "y": 0,
+                  "diameter": 6
+                },
+                {
+                  "id": "ent_right",
+                  "kind": "circle",
+                  "operation": "subtract",
+                  "x": 35,
+                  "y": 0,
+                  "diameter": 6
+                }
+              ],
+              "constraints": [
+                {
+                  "id": "con_plate_height",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "height",
+                  "value": 60
+                },
+                {
+                  "id": "con_plate_width",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "width",
+                  "value": 100
+                },
+                {
+                  "id": "con_plate_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "x",
+                  "value": 0
+                },
+                {
+                  "id": "con_plate_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_plate",
+                  "parameter": "y",
+                  "value": 0
+                },
+                {
+                  "id": "con_left_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_left",
+                  "parameter": "diameter",
+                  "value": 6
+                },
+                {
+                  "id": "con_left_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_left",
+                  "parameter": "x",
+                  "value": -35
+                },
+                {
+                  "id": "con_left_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_left",
+                  "parameter": "y",
+                  "value": 0
+                },
+                {
+                  "id": "con_right_diameter",
+                  "kind": "dimension",
+                  "entity_id": "ent_right",
+                  "parameter": "diameter",
+                  "value": 6
+                },
+                {
+                  "id": "con_right_x",
+                  "kind": "dimension",
+                  "entity_id": "ent_right",
+                  "parameter": "x",
+                  "value": 35
+                },
+                {
+                  "id": "con_right_y",
+                  "kind": "dimension",
+                  "entity_id": "ent_right",
+                  "parameter": "y",
+                  "value": 0
+                }
+              ]
+            }
+          },
+          {
+            "id": "feat_extrusion",
+            "name": "Plate extrusion",
+            "kind": "extrude",
+            "operation": "add",
+            "parameters": {
+              "target_feature": "feat_profile",
+              "amount": 8
+            }
+          }
+        ],
+        "relationships": {
+          "parameters": {
+            "plate_width": {
+              "unit": "mm",
+              "value": 100
+            },
+            "bore_diameter": {
+              "unit": "mm",
+              "value": 6
+            },
+            "thickness": {
+              "unit": "mm",
+              "value": 8
+            },
+            "margin": {
+              "unit": "mm",
+              "value": 15
+            },
+            "origin_x": {
+              "unit": "mm",
+              "value": 0
+            },
+            "origin_y": {
+              "unit": "mm",
+              "value": 0
+            }
+          },
+          "bindings": [
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "bore_diameter",
+              "constraint_id": "con_left_diameter"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_x - (plate_width / 2 - margin)",
+              "constraint_id": "con_left_x"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_y",
+              "constraint_id": "con_left_y"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "plate_width",
+              "constraint_id": "con_plate_width"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_x",
+              "constraint_id": "con_plate_x"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_y",
+              "constraint_id": "con_plate_y"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "bore_diameter",
+              "constraint_id": "con_right_diameter"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_x + (plate_width / 2 - margin)",
+              "constraint_id": "con_right_x"
+            },
+            {
+              "feature_id": "feat_profile",
+              "target": "value",
+              "expression": "origin_y",
+              "constraint_id": "con_right_y"
+            },
+            {
+              "feature_id": "feat_extrusion",
+              "target": "amount",
+              "expression": "thickness"
+            }
+          ]
+        }
+      },
+      "profile_id": "feat_profile",
+      "reference": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -35,
+            "y": 0,
+            "diameter": 6
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 35,
+            "y": 0,
+            "diameter": 6
+          }
+        },
+        "dimensions": {
+          "ent_plate": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ],
+          "ent_left": [
+            "diameter",
+            "x",
+            "y"
+          ],
+          "ent_right": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        },
+        "centres": [],
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 100
+          },
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 6
+          },
+          "thickness": {
+            "unit": "mm",
+            "value": 8
+          },
+          "margin": {
+            "unit": "mm",
+            "value": 15
+          },
+          "origin_x": {
+            "unit": "mm",
+            "value": 0
+          },
+          "origin_y": {
+            "unit": "mm",
+            "value": 0
+          }
+        },
+        "bindings": [
+          [
+            "ent_left.diameter",
+            "bore_diameter"
+          ],
+          [
+            "ent_left.x",
+            "origin_x - (plate_width / 2 - margin)"
+          ],
+          [
+            "ent_left.y",
+            "origin_y"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "ent_plate.x",
+            "origin_x"
+          ],
+          [
+            "ent_plate.y",
+            "origin_y"
+          ],
+          [
+            "ent_right.diameter",
+            "bore_diameter"
+          ],
+          [
+            "ent_right.x",
+            "origin_x + (plate_width / 2 - margin)"
+          ],
+          [
+            "ent_right.y",
+            "origin_y"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ],
+        "rules": [],
+        "extrusion": null,
+        "placement": {
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "rotation_deg": [
+            0,
+            0,
+            0
+          ],
+          "relative_to": null
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 8,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "resize",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle width to 140 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "resize",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 140
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 140,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 140
+          }
+        }
+      }
+    },
+    {
+      "id": "resize_paraphrase",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make the plate 140 mm wide; keep its centred opening.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "resize_paraphrase",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 140
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 140,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 140
+          }
+        }
+      }
+    },
+    {
+      "id": "selected_diameter",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Change this opening to 8 mm diameter.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "selected_diameter",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 8
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 8
+          }
+        },
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 8
+          }
+        }
+      },
+      "selected_entity_id": "ent_bore"
+    },
+    {
+      "id": "driver",
+      "category": "dimension",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set plate_width to 120 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "driver",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "plate_width",
+            "value": 120
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 120,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 120
+          }
+        }
+      }
+    },
+    {
+      "id": "add",
+      "category": "addition",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Add a 6 mm opening centred at local x=30 mm, y=0 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "add",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "new",
+            "entity": {
+              "kind": "circle",
+              "operation": "subtract",
+              "diameter": 6,
+              "x": 30,
+              "y": 0
+            }
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 30,
+            "y": 0,
+            "diameter": 6
+          }
+        },
+        "dimensions": {
+          "new": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "id": "ambiguous_size",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make it bigger.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_size",
+        "question": "Which dimension should change, and to what value in mm?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "ambiguous_margin",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Put a hole 15 mm from the edge.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_margin",
+        "question": "Which edge, and does 15 mm measure to the opening centre or rim?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_curve",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Add a tangent arc to the outside contour.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_curve",
+        "question": "Arcs are not supported in this workspace yet. Would a rectangle or circle meet the requirement?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "protected_remove",
+      "category": "invalid",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Remove the existing bound opening.",
+      "outcome": "reject",
+      "response": {
+        "summary": "protected_remove",
+        "actions": [
+          {
+            "kind": "remove",
+            "entity": "ent_bore"
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "invalid_region",
+      "category": "invalid",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make the opening diameter 200 mm.",
+      "outcome": "reject",
+      "response": {
+        "summary": "invalid_region",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 200
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "height",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle height to 80 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "height",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "height",
+            "value": 80
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "diameter_words",
+      "category": "dimension",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set the opening diameter to 12 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "diameter_words",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 12
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 12
+          }
+        },
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 12
+          }
+        }
+      }
+    },
+    {
+      "id": "named_over_selection",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle width to 125 mm; preserve all other dimensions and relationships. The selected bore must stay unchanged.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "named_over_selection",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 125
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 125,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 125
+          }
+        }
+      },
+      "selected_entity_id": "ent_bore"
+    },
+    {
+      "id": "offset_width",
+      "category": "dimension",
+      "context": "offset",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle width to 140 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "offset_width",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 140
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 5,
+            "width": 140,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 140
+          }
+        }
+      }
+    },
+    {
+      "id": "rotated_diameter",
+      "category": "dimension",
+      "context": "rotated",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the opening diameter to 16 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "rotated_diameter",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 16
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 10,
+            "y": 5,
+            "diameter": 16
+          }
+        },
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 16
+          }
+        }
+      }
+    },
+    {
+      "id": "translate_x",
+      "category": "dimension",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle x to 15 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "translate_x",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "x",
+            "value": 15
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 15,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 15,
+            "y": 0,
+            "diameter": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "translate_y",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the outer rectangle y to -12 mm; preserve all other dimensions and relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "translate_y",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "y",
+            "value": -12
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": -12,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": -12,
+            "diameter": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "driver_bore_diameter",
+      "category": "driver",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the existing bore_diameter driver to 10 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "driver_bore_diameter",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "bore_diameter",
+            "value": 10
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 10
+          }
+        },
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "driver_thickness",
+      "category": "driver",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the existing thickness driver to 12 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "driver_thickness",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "thickness",
+            "value": 12
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "thickness": {
+            "unit": "mm",
+            "value": 12
+          }
+        },
+        "consumers": {
+          "feat_extrusion": {
+            "target_feature": "feat_profile",
+            "amount": 12,
+            "taper": 0,
+            "twist": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "add_0",
+      "category": "addition",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Add a 8 mm opening centred at local x=-30 mm, y=0 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "add_0",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "new",
+            "entity": {
+              "kind": "circle",
+              "operation": "subtract",
+              "x": -30,
+              "y": 0,
+              "diameter": 8
+            }
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -30,
+            "y": 0,
+            "diameter": 8
+          }
+        },
+        "dimensions": {
+          "new": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "id": "add_1",
+      "category": "addition",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Add a 6 mm opening centred at local x=0 mm, y=20 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "add_1",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "new",
+            "entity": {
+              "kind": "circle",
+              "operation": "subtract",
+              "x": 0,
+              "y": 20,
+              "diameter": 6
+            }
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 20,
+            "diameter": 6
+          }
+        },
+        "dimensions": {
+          "new": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "id": "add_2",
+      "category": "addition",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Add a 4 mm opening centred at local x=25 mm, y=18 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "add_2",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "new",
+            "entity": {
+              "kind": "circle",
+              "operation": "subtract",
+              "x": 25,
+              "y": 18,
+              "diameter": 4
+            }
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 25,
+            "y": 18,
+            "diameter": 4
+          }
+        },
+        "dimensions": {
+          "new": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "id": "free_edit_0",
+      "category": "movement",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the existing opening x to 30 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "free_edit_0",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "x",
+            "value": 30
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 30,
+            "y": 0,
+            "diameter": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "free_edit_1",
+      "category": "movement",
+      "context": "free",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set the existing opening x to -25 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "free_edit_1",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "x",
+            "value": -25
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -25,
+            "y": 0,
+            "diameter": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "free_edit_2",
+      "category": "movement",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the existing opening y to 15 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "free_edit_2",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "y",
+            "value": 15
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 25,
+            "y": 15,
+            "diameter": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "free_edit_3",
+      "category": "movement",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set the existing opening diameter to 10 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "free_edit_3",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 10
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 25,
+            "y": 0,
+            "diameter": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "remove_unbound",
+      "category": "removal",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Remove the unbound opening.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "remove_unbound",
+        "actions": [
+          {
+            "kind": "remove",
+            "entity": "ent_bore"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": null
+        },
+        "dimensions": {
+          "ent_bore": null
+        }
+      }
+    },
+    {
+      "id": "centre_unbound",
+      "category": "centre",
+      "context": "free",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Centre the opening on the outer rectangle, replacing its location dimensions.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "centre_unbound",
+        "actions": [
+          {
+            "kind": "centre",
+            "entity": "ent_bore",
+            "other": "ent_plate"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 20
+          }
+        },
+        "dimensions": {
+          "ent_bore": [
+            "diameter"
+          ]
+        },
+        "centres": [
+          [
+            "ent_bore",
+            "ent_plate"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "dependent_0",
+      "category": "dependency",
+      "context": "margins",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set plate_width to 140 mm and preserve all relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "dependent_0",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "plate_width",
+            "value": 140
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 140
+          }
+        },
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 140,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -55.0,
+            "y": 0,
+            "diameter": 6
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 55.0,
+            "y": 0,
+            "diameter": 6
+          }
+        }
+      }
+    },
+    {
+      "id": "dependent_1",
+      "category": "dependency",
+      "context": "margins",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set margin to 20 mm and preserve all relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "dependent_1",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "margin",
+            "value": 20
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "margin": {
+            "unit": "mm",
+            "value": 20
+          }
+        },
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -30,
+            "y": 0,
+            "diameter": 6
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 30,
+            "y": 0,
+            "diameter": 6
+          }
+        }
+      }
+    },
+    {
+      "id": "dependent_2",
+      "category": "dependency",
+      "context": "margins",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set bore_diameter to 8 mm and preserve all relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "dependent_2",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "bore_diameter",
+            "value": 8
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 8
+          }
+        },
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -35,
+            "y": 0,
+            "diameter": 8
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 35,
+            "y": 0,
+            "diameter": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "dependent_3",
+      "category": "dependency",
+      "context": "margins",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set origin_x to 10 mm and preserve all relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "dependent_3",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "origin_x",
+            "value": 10
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "origin_x": {
+            "unit": "mm",
+            "value": 10
+          }
+        },
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -25,
+            "y": 0,
+            "diameter": 6
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 45,
+            "y": 0,
+            "diameter": 6
+          }
+        }
+      }
+    },
+    {
+      "id": "dependent_4",
+      "category": "dependency",
+      "context": "margins",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set origin_y to 5 mm and preserve all relationships.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "dependent_4",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "origin_y",
+            "value": 5
+          }
+        ]
+      },
+      "changes": {
+        "parameters": {
+          "origin_y": {
+            "unit": "mm",
+            "value": 5
+          }
+        },
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 5,
+            "width": 100,
+            "height": 60
+          },
+          "ent_left": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -35,
+            "y": 5,
+            "diameter": 6
+          },
+          "ent_right": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 35,
+            "y": 5,
+            "diameter": 6
+          }
+        }
+      }
+    },
+    {
+      "id": "create_rectangle_0",
+      "category": "creation",
+      "context": "empty",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Create a rectangle centred at local origin with width=100 mm, height=60 mm and extrude 8 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "create_rectangle_0",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "outer",
+            "entity": {
+              "kind": "rectangle",
+              "operation": "add",
+              "x": 0,
+              "y": 0,
+              "width": 100,
+              "height": 60
+            }
+          },
+          {
+            "kind": "extrusion",
+            "amount": 8
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          }
+        },
+        "dimensions": {
+          "new": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ]
+        },
+        "extrusion": 8
+      }
+    },
+    {
+      "id": "create_circle_1",
+      "category": "creation",
+      "context": "empty",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Create a circle centred at local origin with diameter=50 mm and extrude 10 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "create_circle_1",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "outer",
+            "entity": {
+              "kind": "circle",
+              "operation": "add",
+              "x": 0,
+              "y": 0,
+              "diameter": 50
+            }
+          },
+          {
+            "kind": "extrusion",
+            "amount": 10
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "circle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "diameter": 50
+          }
+        },
+        "dimensions": {
+          "new": [
+            "diameter",
+            "x",
+            "y"
+          ]
+        },
+        "extrusion": 10
+      }
+    },
+    {
+      "id": "create_rectangle_2",
+      "category": "creation",
+      "context": "empty",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Create a rectangle centred at local origin with width=80 mm, height=40 mm and extrude 6 mm.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "create_rectangle_2",
+        "actions": [
+          {
+            "kind": "create",
+            "key": "outer",
+            "entity": {
+              "kind": "rectangle",
+              "operation": "add",
+              "x": 0,
+              "y": 0,
+              "width": 80,
+              "height": 40
+            }
+          },
+          {
+            "kind": "extrusion",
+            "amount": 6
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "new": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 80,
+            "height": 40
+          }
+        },
+        "dimensions": {
+          "new": [
+            "height",
+            "width",
+            "x",
+            "y"
+          ]
+        },
+        "extrusion": 6
+      }
+    },
+    {
+      "id": "margin_left",
+      "category": "margin",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Keep the existing opening centre 15 mm from the left edge, centre the other coordinate, and name the distance edge_margin.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "margin_left",
+        "actions": [
+          {
+            "kind": "margin",
+            "entity": "ent_bore",
+            "edge": "left",
+            "distance": 15,
+            "driver_name": "edge_margin"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": -35,
+            "y": 0,
+            "diameter": 20
+          }
+        },
+        "parameters": {
+          "sketch_x": {
+            "unit": "mm",
+            "value": 0
+          },
+          "sketch_y": {
+            "unit": "mm",
+            "value": 0
+          },
+          "edge_margin": {
+            "unit": "mm",
+            "value": 15
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.x",
+            "sketch_x - (plate_width / 2 - edge_margin)"
+          ],
+          [
+            "ent_bore.y",
+            "sketch_y"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "ent_plate.x",
+            "sketch_x"
+          ],
+          [
+            "ent_plate.y",
+            "sketch_y"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "margin_right",
+      "category": "margin",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Keep the existing opening centre 15 mm from the right edge, centre the other coordinate, and name the distance edge_margin.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "margin_right",
+        "actions": [
+          {
+            "kind": "margin",
+            "entity": "ent_bore",
+            "edge": "right",
+            "distance": 15,
+            "driver_name": "edge_margin"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 35,
+            "y": 0,
+            "diameter": 20
+          }
+        },
+        "parameters": {
+          "sketch_x": {
+            "unit": "mm",
+            "value": 0
+          },
+          "sketch_y": {
+            "unit": "mm",
+            "value": 0
+          },
+          "edge_margin": {
+            "unit": "mm",
+            "value": 15
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.x",
+            "sketch_x + (plate_width / 2 - edge_margin)"
+          ],
+          [
+            "ent_bore.y",
+            "sketch_y"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "ent_plate.x",
+            "sketch_x"
+          ],
+          [
+            "ent_plate.y",
+            "sketch_y"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "margin_top",
+      "category": "margin",
+      "context": "free",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Keep the existing opening centre 15 mm from the top edge, centre the other coordinate, and name the distance edge_margin.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "margin_top",
+        "actions": [
+          {
+            "kind": "margin",
+            "entity": "ent_bore",
+            "edge": "top",
+            "distance": 15,
+            "driver_name": "edge_margin"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 15,
+            "diameter": 20
+          }
+        },
+        "parameters": {
+          "sketch_x": {
+            "unit": "mm",
+            "value": 0
+          },
+          "sketch_y": {
+            "unit": "mm",
+            "value": 0
+          },
+          "edge_margin": {
+            "unit": "mm",
+            "value": 15
+          },
+          "sketch_height": {
+            "unit": "mm",
+            "value": 60
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.x",
+            "sketch_x"
+          ],
+          [
+            "ent_bore.y",
+            "sketch_y + (sketch_height / 2 - edge_margin)"
+          ],
+          [
+            "ent_plate.height",
+            "sketch_height"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "ent_plate.x",
+            "sketch_x"
+          ],
+          [
+            "ent_plate.y",
+            "sketch_y"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "margin_bottom",
+      "category": "margin",
+      "context": "free",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Keep the existing opening centre 15 mm from the bottom edge, centre the other coordinate, and name the distance edge_margin.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "margin_bottom",
+        "actions": [
+          {
+            "kind": "margin",
+            "entity": "ent_bore",
+            "edge": "bottom",
+            "distance": 15,
+            "driver_name": "edge_margin"
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": -15,
+            "diameter": 20
+          }
+        },
+        "parameters": {
+          "sketch_x": {
+            "unit": "mm",
+            "value": 0
+          },
+          "sketch_y": {
+            "unit": "mm",
+            "value": 0
+          },
+          "edge_margin": {
+            "unit": "mm",
+            "value": 15
+          },
+          "sketch_height": {
+            "unit": "mm",
+            "value": 60
+          }
+        },
+        "bindings": [
+          [
+            "ent_bore.x",
+            "sketch_x"
+          ],
+          [
+            "ent_bore.y",
+            "sketch_y - (sketch_height / 2 - edge_margin)"
+          ],
+          [
+            "ent_plate.height",
+            "sketch_height"
+          ],
+          [
+            "ent_plate.width",
+            "plate_width"
+          ],
+          [
+            "ent_plate.x",
+            "sketch_x"
+          ],
+          [
+            "ent_plate.y",
+            "sketch_y"
+          ],
+          [
+            "feat_extrusion.amount",
+            "thickness"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ambiguous_target",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Move it 10 mm.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_target",
+        "question": "Which entity and local direction?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "ambiguous_count",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Add some holes.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_count",
+        "question": "How many, with what diameters and positions?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "ambiguous_rim",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Give the bore 5 mm clearance.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_rim",
+        "question": "Which boundary, and is this rim clearance?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "ambiguous_equal",
+      "category": "ambiguity",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Make them the same.",
+      "outcome": "clarification",
+      "response": {
+        "summary": "ambiguous_equal",
+        "question": "Which dimensions should share which value?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_0",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Fillet the sketch corners to R5.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_0",
+        "question": "Sketch fillets are unsupported here. Finish the sketch first?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_1",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Create an assembly of these plates.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_1",
+        "question": "Assemblies are outside this workspace. Finish or discard the sketch first?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_2",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Change the existing extrusion depth directly to 12 mm.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_2",
+        "question": "Existing extrusion edits are unsupported here. Edit the thickness driver instead?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_3",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Rotate the sketch plane 30 degrees.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_3",
+        "question": "Plane edits are unsupported here. Finish this sketch first?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "unsupported_4",
+      "category": "unsupported",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Detach the bound bore diameter.",
+      "outcome": "unsupported",
+      "response": {
+        "summary": "unsupported_4",
+        "question": "Detaching bindings is unsupported. Change its driver instead?"
+      },
+      "changes": {}
+    },
+    {
+      "id": "negative_width",
+      "category": "invalid",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set outer width to -10 mm.",
+      "outcome": "reject",
+      "response": {
+        "summary": "negative_width",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": -10
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "remove_outer",
+      "category": "invalid",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Remove the outer contour.",
+      "outcome": "reject",
+      "response": {
+        "summary": "remove_outer",
+        "actions": [
+          {
+            "kind": "remove",
+            "entity": "ent_plate"
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "conflicting_width",
+      "category": "invalid",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set width to both 100 and 140 mm.",
+      "outcome": "reject",
+      "response": {
+        "summary": "conflicting_width",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 100
+          },
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 140
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "missing_driver",
+      "category": "invalid",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set a nonexistent driver imaginary_size to 12 mm.",
+      "outcome": "reject",
+      "response": {
+        "summary": "missing_driver",
+        "actions": [
+          {
+            "kind": "driver",
+            "parameter": "imaginary_size",
+            "value": 12
+          }
+        ]
+      },
+      "changes": {}
+    },
+    {
+      "id": "clarification_0",
+      "category": "clarification",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make the opening bigger.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "clarification_0",
+        "question": "What diameter in mm?"
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 24
+          }
+        },
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 24
+          }
+        }
+      },
+      "answer": "Set its diameter to 24 mm.",
+      "followup_response": {
+        "summary": "Clarified change",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 24
+          }
+        ]
+      }
+    },
+    {
+      "id": "clarification_1",
+      "category": "clarification",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Change the plate width.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "clarification_1",
+        "question": "What width in mm?"
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 140,
+            "height": 60
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 140
+          }
+        }
+      },
+      "answer": "140 mm.",
+      "followup_response": {
+        "summary": "Clarified change",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 140
+          }
+        ]
+      }
+    },
+    {
+      "id": "clarification_2",
+      "category": "clarification",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Move the plate centre.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "clarification_2",
+        "question": "What local x and y?"
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 0,
+            "width": 100,
+            "height": 60
+          },
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 10,
+            "y": 0,
+            "diameter": 20
+          }
+        }
+      },
+      "answer": "x=10 mm, keep y=0 mm.",
+      "followup_response": {
+        "summary": "Clarified change",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "x",
+            "value": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "clarification_3",
+      "category": "clarification",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make the plate taller.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "clarification_3",
+        "question": "What outer height in mm?"
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 80
+          }
+        }
+      },
+      "answer": "80 mm.",
+      "followup_response": {
+        "summary": "Clarified change",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "height",
+            "value": 80
+          }
+        ]
+      }
+    },
+    {
+      "id": "two_dimensions",
+      "category": "dimension",
+      "context": "plate",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Make the plate 120 mm wide and 80 mm high, keeping its centred bore unchanged.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "two_dimensions",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "width",
+            "value": 120
+          },
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "height",
+            "value": 80
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 0,
+            "y": 0,
+            "width": 120,
+            "height": 80
+          }
+        },
+        "parameters": {
+          "plate_width": {
+            "unit": "mm",
+            "value": 120
+          }
+        }
+      }
+    },
+    {
+      "id": "rotated_height",
+      "category": "dimension",
+      "context": "rotated",
+      "split": "development",
+      "reviewed": false,
+      "prompt": "Set outer height to 75 mm and preserve the existing plane and centre.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "rotated_height",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_plate",
+            "parameter": "height",
+            "value": 75
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_plate": {
+            "kind": "rectangle",
+            "operation": "add",
+            "x": 10,
+            "y": 5,
+            "width": 100,
+            "height": 75
+          }
+        }
+      }
+    },
+    {
+      "id": "selected_named_bore",
+      "category": "dimension",
+      "context": "plate",
+      "split": "holdout",
+      "reviewed": false,
+      "prompt": "Set the centre bore diameter to 14 mm, leaving the selected outer rectangle unchanged.",
+      "outcome": "proposal",
+      "response": {
+        "summary": "selected_named_bore",
+        "actions": [
+          {
+            "kind": "dimension",
+            "entity": "ent_bore",
+            "parameter": "diameter",
+            "value": 14
+          }
+        ]
+      },
+      "changes": {
+        "entities": {
+          "ent_bore": {
+            "kind": "circle",
+            "operation": "subtract",
+            "x": 0,
+            "y": 0,
+            "diameter": 14
+          }
+        },
+        "parameters": {
+          "bore_diameter": {
+            "unit": "mm",
+            "value": 14
+          }
+        }
+      },
+      "selected_entity_id": "ent_plate"
+    }
+  ]
+}

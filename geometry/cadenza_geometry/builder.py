@@ -10,6 +10,8 @@ nothing depends on face ordering and the build is reproducible under edits.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import Any
 
 from build123d import (
     Align,
@@ -26,6 +28,9 @@ from build123d import (
     Vector,
     Axis,
     Polygon,
+    Rectangle,
+    Circle,
+    RegularPolygon,
     Cone,
     Sphere,
     Torus,
@@ -40,13 +45,11 @@ from build123d import (
     chamfer,
     Rotation,
 )
-import logging
-logger = logging.getLogger(__name__)
-
 from cadenza_geometry.contracts import GeometryError, GeometryErrorCode
-from cadenza_geometry.frames import feature_location, to_world, dir_to_world
+from cadenza_geometry.frames import feature_location, pattern_locations
+from cadenza_geometry.joints import solve_rigid_joints
 from cadenza_geometry.gear import Arc, Line, Spline, gear_profile
-from cadenza_geometry.plan import BuildPlan, RFeature
+from cadenza_geometry.plan import BuildPlan, RFeature, AssemblyPlan, RPart, RComponent, RJoint
 
 # Overshoot for cutters, so a coplanar boolean never has to be decided exactly.
 EPS = 0.01
@@ -102,7 +105,8 @@ def _parse_align(align_val: Any) -> tuple[Align, Align, Align]:
     if isinstance(align_val, str):
         align_val = [align_val] * 3
     mapping = {"min": Align.MIN, "center": Align.CENTER, "max": Align.MAX}
-    return tuple(mapping.get(str(a).lower(), Align.MIN) for a in align_val)
+    a0, a1, a2 = (mapping.get(str(a).lower(), Align.MIN) for a in align_val)
+    return (a0, a1, a2)
 
 def _primitive(f: RFeature, current: Shape | None = None, built_shapes: dict[str, Shape] | None = None) -> Shape:
     align = _parse_align(f.p.get("align"))
@@ -116,6 +120,29 @@ def _primitive(f: RFeature, current: Shape | None = None, built_shapes: dict[str
         return Sphere(radius=f.p["diameter"] / 2, align=align)
     if f.kind == "torus":
         return Torus(major_radius=f.p["major_diameter"] / 2, minor_radius=f.p["minor_diameter"] / 2, align=align)
+    if f.kind == "fastener":
+        d = f.p["diameter"]
+        l = f.p["length"]
+        head = f.p.get("head_type", "socket")
+        shank = Cylinder(radius=d/2, height=l, align=(Align.CENTER, Align.CENTER, Align.MAX))
+        if head == "socket":
+            hd, hh = d * 1.5, d
+            head_cyl = Cylinder(radius=hd/2, height=hh, align=(Align.CENTER, Align.CENTER, Align.MIN))
+            hx = make_face(RegularPolygon(radius=d/2.5, side_count=6))
+            sock = extrude(hx, amount=hh*0.6)
+            sock = Pos(0, 0, hh*0.4) * sock
+            head_shape = head_cyl - sock
+        elif head == "hex":
+            hd, hh = d * 1.5, d * 0.7
+            hx = make_face(RegularPolygon(radius=hd/2, side_count=6))
+            head_shape = extrude(hx, amount=hh)
+        elif head == "flat":
+            hd, hh = d * 2, d / 2
+            head_shape = Cone(bottom_radius=d/2, top_radius=hd/2, height=hh, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        else: # button
+            hd, hh = d * 1.9, d * 0.5
+            head_shape = Cylinder(radius=hd/2, height=hh, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        return head_shape + shank
     if f.kind == "gear":
         return _gear(f)
     if f.kind == "edge_fillet":
@@ -129,6 +156,13 @@ def _primitive(f: RFeature, current: Shape | None = None, built_shapes: dict[str
         poly = Polygon([(0, 0), (w, 0), (0, w)])
         # Extrude pushes +Z. Center it.
         return Pos(0, 0, -l / 2) * extrude(poly, amount=l)
+    if f.kind == "profile":
+        profile = None
+        for entity in f.p["entities"]:
+            region = Rectangle(entity["width"], entity["height"]) if entity["kind"] == "rectangle" else Circle(entity["diameter"] / 2)
+            region = Pos(entity["x"], entity["y"], 0) * region
+            profile = region if profile is None else profile - region
+        return profile
     if f.kind == "sketch":
         edges = f.p.get("edges", [])
         if edges:
@@ -203,6 +237,8 @@ def _primitive(f: RFeature, current: Shape | None = None, built_shapes: dict[str
             target = Compound(target)
         amount = f.p["amount"]
         taper = f.p.get("taper", 0.0)
+        if f.p.get("profile_normal"):
+            return extrude(target, amount=amount, dir=target.faces()[0].normal_at(), taper=taper)
         return extrude(target, amount=amount, taper=taper)
     raise GeometryError(
         GeometryErrorCode.UNSUPPORTED_FEATURE, f"no primitive for kind {f.kind!r}", f.id
@@ -245,38 +281,13 @@ def build_solid(plan: BuildPlan) -> Shape:
                 if target_id not in built_shapes:
                     raise GeometryError(GeometryErrorCode.INVALID_PARAMETER, f"target_feature {target_id!r} not found or not built yet", f.id)
                 target = built_shapes[target_id]
-                count = int(f.p["count"])
-                if f.kind == "linear_pattern":
-                    # Local axes converted to world space direction
-                    world_axis = Vector(dir_to_world(loc, f.p["axis"]))
-                    world_axis2 = Vector(dir_to_world(loc, f.p.get("axis_2", (0.0, 1.0, 0.0))))
-                    
-                    count_2 = int(f.p.get("count_2", 1))
-                    spacing = f.p["spacing"]
-                    spacing_2 = f.p.get("spacing_2", 0.0)
-                    
-                    translations = []
-                    for i in range(count):
-                        for j in range(count_2):
-                            if i == 0 and j == 0:
-                                continue # Target itself is already at (0,0) index
-                            translations.append(Location(world_axis * spacing * i + world_axis2 * spacing_2 * j))
-                    
-                    shape = Compound([t * target for t in translations])
-                else:
-                    # Circular pattern
-                    axis_p0 = to_world(loc, (0, 0, 0))
-                    axis_dir = dir_to_world(loc, (0, 0, 1))
-                    axis = Axis(axis_p0, axis_dir)
-                    step = f.p["sweep_angle"] / count
-                    shape = Compound([target.rotate(axis, step * i) for i in range(1, count)])
-                # Do NOT multiply by loc here; loc is already used to define the pattern frame above
+                shape = Compound([transform * target for transform in pattern_locations(f, plan)])
                 built_shapes[f.id] = shape
-            elif f.kind == "hole":
+            elif f.kind in ("hole", "threaded_hole"):
                 if solid is None:  # gated in plan.py; belt and braces
                     raise GeometryError(
                         GeometryErrorCode.INVALID_PARAMETER,
-                        f"hole {f.id!r} has nothing to cut",
+                        f"{f.kind} {f.id!r} has nothing to cut",
                         f.id,
                     )
                 shape = loc * _cutter(f, solid)
@@ -385,9 +396,8 @@ def build_solid(plan: BuildPlan) -> Shape:
         )
 
     if not solid.is_valid:
-        logger.warning("the resulting shape is not a valid solid")
         raise GeometryError(
-            GeometryErrorCode.BOOLEAN_ERROR,
+            GeometryErrorCode.KERNEL_FAILURE,
             "the resulting solid is not a valid B-Rep",
             None
         )
@@ -404,3 +414,110 @@ def build_solid(plan: BuildPlan) -> Shape:
         )
 
     return solid
+
+
+@dataclass
+class AssemblyLeaf:
+    path: tuple[str, ...]
+    plan: BuildPlan
+    part_id: str | None
+    solid: Shape
+    location: Location
+
+
+def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = None) -> Compound:
+    """AssemblyPlan -> a Compound containing all placed components, or raise GeometryError."""
+    locations = solve_rigid_joints({comp.id: Location(comp.origin, comp.rotation_deg)
+                                    for comp in plan.components}, plan.joints)
+    parts: dict[str, Shape] = {}
+    part_plans: dict[str, BuildPlan] = {}
+    for rpart in plan.parts:
+        try:
+            # We construct a fake BuildPlan to reuse build_solid
+            part_plan = BuildPlan(
+                project_id=plan.project_id,
+                name=rpart.name,
+                revision=plan.revision,
+                units=plan.units,
+                features=rpart.features
+            )
+            parts[rpart.id] = build_solid(part_plan)
+            part_plans[rpart.id] = part_plan
+        except GeometryError as e:
+            # Re-raise with part context if possible
+            raise GeometryError(e.code, f"Failed to build part {rpart.id!r}: {e.message}", e.feature_id, detail=e.detail)
+
+    components: dict[str, Shape] = {}
+    solids_list: list[Shape] = []
+
+    # Place components
+    for comp in plan.components:
+        child_leaves: list[AssemblyLeaf] = []
+        if comp.sub_assembly:
+            base_solid = build_assembly(comp.sub_assembly, leaves=child_leaves if leaves is not None else None)
+        elif comp.part_id in parts:
+            base_solid = parts[comp.part_id]
+            if leaves is not None:
+                child_leaves.append(AssemblyLeaf((), part_plans[comp.part_id],
+                    None if comp.id == "sub_comp" else comp.part_id, base_solid, Location()))
+        else:
+            raise GeometryError(
+                GeometryErrorCode.INVALID_PARAMETER,
+                f"Component {comp.id!r} references missing part {comp.part_id!r}",
+                comp.id
+            )
+        
+        # Clone the solid so we can independently position it
+        
+        # Apply component placement
+        # The placement rotation is in degrees (intrinsic XYZ).
+        loc = locations[comp.id]
+        if leaves is not None:
+            # sub_comp is the resolver's synthetic single-part wrapper, never a
+            # schema-valid user component ID. Keep only real instance identities.
+            prefix = () if comp.id == "sub_comp" else (comp.id,)
+            leaves.extend(AssemblyLeaf(prefix + leaf.path, leaf.plan, leaf.part_id,
+                                      leaf.solid, loc * leaf.location) for leaf in child_leaves)
+        
+        placed_solid = loc * base_solid
+        
+        # Labels aid diagnostics; explicit leaf records carry source identity.
+        placed_solid.label = comp.id
+        
+        components[comp.id] = placed_solid
+        solids_list.append(placed_solid)
+
+    # Interference check
+    comp_ids = list(components.keys())
+    for i in range(len(comp_ids)):
+        for j in range(i + 1, len(comp_ids)):
+            id_a = comp_ids[i]
+            id_b = comp_ids[j]
+            shape_a = components[id_a]
+            shape_b = components[id_b]
+            
+            try:
+                intersection = shape_a.intersect(shape_b)
+                if intersection is None:
+                    continue
+                if isinstance(intersection, list) or type(intersection).__name__ == "ShapeList":
+                    vol = sum(s.volume for s in intersection)
+                else:
+                    vol = intersection.volume
+                if vol > EPS:
+                    raise GeometryError(
+                        GeometryErrorCode.KERNEL_FAILURE,
+                        f"Interference detected: Component {id_a!r} collides with {id_b!r}",
+                        id_a,
+                        detail=f"Intersection volume: {vol:.2f} mm^3"
+                    )
+            except Exception as e:
+                if isinstance(e, GeometryError):
+                    raise
+                raise GeometryError(GeometryErrorCode.KERNEL_FAILURE,
+                    f"Could not check interference between {id_a!r} and {id_b!r}", id_a,
+                    detail=str(e)) from e
+
+    # Return a Compound of all components
+    assembly = Compound(solids_list)
+    return assembly

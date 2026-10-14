@@ -1,0 +1,58 @@
+{
+  "M3": {
+    "tap_drill": 2.5,
+    "clearance_close": 3.2,
+    "clearance_normal": 3.4,
+    "clearance_loose": 3.6,
+    "cbore_dia": 6.0,
+    "cbore_depth": 3.0
+  },
+  "M4": {
+    "tap_drill": 3.3,
+    "clearance_close": 4.3,
+    "clearance_normal": 4.5,
+    "clearance_loose": 4.8,
+    "cbore_dia": 8.0,
+    "cbore_depth": 4.0
+  },
+  "M5": {
+    "tap_drill": 4.2,
+    "clearance_close": 5.3,
+    "clearance_normal": 5.5,
+    "clearance_loose": 5.8,
+    "cbore_dia": 10.0,
+    "cbore_depth": 5.0
+  },
+  "M6": {
+    "tap_drill": 5.0,
+    "clearance_close": 6.4,
+    "clearance_normal": 6.6,
+    "clearance_loose": 7.0,
+    "cbore_dia": 11.0,
+    "cbore_depth": 6.0
+  },
+  "M8": {
+    "tap_drill": 6.8,
+    "clearance_close": 8.4,
+    "clearance_normal": 9.0,
+    "clearance_loose": 10.0,
+    "cbore_dia": 15.0,
+    "cbore_depth": 8.0
+  },
+  "M10": {
+    "tap_drill": 8.5,
+    "clearance_close": 10.5,
+    "clearance_normal": 11.0,
+    "clearance_loose": 12.0,
+    "cbore_dia": 18.0,
+    "cbore_depth": 10.0
+  },
+  "M12": {
+    "tap_drill": 10.2,
+    "clearance_close": 13.0,
+    "clearance_normal": 13.5,
+    "clearance_loose": 14.5,
+    "cbore_dia": 20.0,
+    "cbore_depth": 12.0
+  }
+}

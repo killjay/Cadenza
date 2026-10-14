@@ -248,6 +248,6 @@ def test_rollback_restores_previous_ledger(plate_ledger: Ledger):
     store = LedgerStore(ledger=plate_ledger)
     store.apply([PatchOp(op="replace", path=f"/features/{BASE_ID}/parameters/height", value=40)])
 
-    store.rollback()
+    store.undo()
 
     assert store.ledger.features[0].parameters.height == 20

@@ -58,13 +58,15 @@ export class PickTarget {
     this.faceCount = data.faceCount;
 
     this.starts = new Int32Array(data.faceCount);
-    for (let i = 0; i < data.faceCount; i++) this.starts[i] = data.faceGroups[i * 3]!;
+    for (let i = 0; i < data.faceCount; i++) {
+      // faceGroups is [indexStart, indexCount, faceHash]
+      // We convert indexStart to triStart for the binary search
+      this.starts[i] = data.faceGroups[i * 3]! / 3;
+    }
   }
 
   /** Which B-rep face owns triangle `tri`? */
   faceHashOfTriangle(tri: number): number {
-    // faceGroups come out of OCCT in triangle order, so this is a plain
-    // binary search for the last group whose start is <= tri.
     let lo = 0;
     let hi = this.faceCount - 1;
     let found = -1;
@@ -78,13 +80,13 @@ export class PickTarget {
       }
     }
     if (found < 0) return -1;
-    const start = this.faceGroups[found * 3]!;
-    const count = this.faceGroups[found * 3 + 1]!;
-    if (tri >= start + count) return -1;
+    const triStart = this.starts[found]!;
+    const triCount = this.faceGroups[found * 3 + 1]! / 3;
+    if (tri >= triStart + triCount) return -1;
     return this.faceGroups[found * 3 + 2]!;
   }
 
-  /** Triangle range of a face, as [firstTriangle, triangleCount]. */
+  /** Triangle range of a face, as [triStart, triCount]. */
   triangleRange(faceHash: number): [number, number] | null {
     for (let i = 0; i < this.faceCount; i++) {
       if (this.faceGroups[i * 3 + 2] === faceHash) {
@@ -95,6 +97,7 @@ export class PickTarget {
   }
 
   pick(raycaster: THREE.Raycaster): PickResult | null {
+    console.log('faceGroups:', this.faceGroups);
     const hits = raycaster.intersectObject(this.mesh, false);
     const hit = hits[0];
     if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return null;
@@ -109,35 +112,35 @@ export class PickTarget {
     return { faceHash, point: hit.point.clone(), normal, distance: hit.distance };
   }
 
-  /**
-   * A mesh containing only the picked face's triangles — the highlight.
-   * Built from the same buffers, so it sits exactly on the surface.
-   */
   buildFaceOverlay(faceHash: number): THREE.Mesh | null {
     const range = this.triangleRange(faceHash);
     if (!range) return null;
-    const [start, count] = range;
+    const [indexStart, indexCount] = range;
 
     const src = this.mesh.geometry;
     const srcIndex = src.getIndex()!;
-    const idx = new Uint32Array(count * 3);
-    for (let i = 0; i < count * 3; i++) idx[i] = srcIndex.getX(start * 3 + i);
+    
+    const idx = new Uint32Array(indexCount);
+    for (let i = 0; i < indexCount; i++) idx[i] = srcIndex.getX(indexStart + i);
 
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", src.getAttribute("position"));
-    geo.setAttribute("normal", src.getAttribute("normal"));
+    // Clone the attributes so that disposing this overlay mesh does not
+    // corrupt the shared pick-mesh buffers (which would break subsequent
+    // buildFaceOverlay calls for the selection highlight).
+    geo.setAttribute("position", (src.getAttribute("position") as THREE.BufferAttribute).clone());
+    geo.setAttribute("normal", (src.getAttribute("normal") as THREE.BufferAttribute).clone());
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeBoundingSphere();
 
     const mat = new THREE.MeshBasicMaterial({
       color: COLORS.highlight,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.6,
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits: -4,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     });
 
     const mesh = new THREE.Mesh(geo, mat);

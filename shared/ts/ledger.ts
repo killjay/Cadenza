@@ -1,18 +1,9 @@
-/**
- * The JSON ledger — mirror of cadenza_contracts/ledger.py.
- *
- * Keep the two in lockstep; they are ONE contract expressed twice. If you edit
- * this file without editing the Python, you have created a bug that only shows
- * up at runtime, on a Friday.
- *
- * Units: millimetres, degrees. Coordinates: right-handed, Z-UP.
- * glTF is Y-up — the frontend converts at the Three.js boundary and nowhere
- * else. Anything sent back to the server is in ledger coordinates.
- */
+/** TypeScript mirror of cadenza_contracts/ledger.py. Units are mm/degrees, Z-up. */
 
 export const SCHEMA_VERSION = 1;
 export const MAX_FEATURES = 64;
 
+export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 
 export interface Metadata {
@@ -24,15 +15,9 @@ export interface Metadata {
 }
 
 export interface Placement {
-  /**
-   * box      — centre of the footprint at the BOTTOM face
-   * cylinder — centre of the bottom circular face, axis +Z
-   * hole     — where the axis pierces the face it is cut from, cut along -Z.
-   *            For `through: true` holes origin[2] is IGNORED: the hole spans
-   *            the whole solid and re-derives its extent at every rebuild.
-   */
   origin: Vec3;
   rotation_deg: Vec3;
+  relative_to: string | null;
 }
 
 export interface TargetRef {
@@ -59,19 +44,23 @@ interface FeatureBase {
   name: string;
   suppressed: boolean;
   placement: Placement;
-  target: TargetRef | null;
+  targets: TargetRef[];
   ai_context: AIContext;
 }
 
 export interface BoxParameters {
-  length: number; // +X
-  width: number;  // +Y
-  height: number; // +Z
+  length: number;
+  width: number;
+  height: number;
+  through: boolean;
+  draft_angle: number;
 }
 
 export interface CylinderParameters {
   diameter: number;
   height: number;
+  through: boolean;
+  draft_angle: number;
 }
 
 export interface HoleParameters {
@@ -80,20 +69,128 @@ export interface HoleParameters {
   depth: number | null;
 }
 
-/**
- * Standard involute spur gear. `module` and `teeth` define it; the rest a
- * machinist would quote is derived (pitch diameter = module * teeth, outer
- * diameter = module * (teeth + 2) before profile shift).
- */
 export interface GearParameters {
   module: number;
   teeth: number;
-  /** Face width, along +Z. */
   height: number;
   pressure_angle_deg: number;
-  /** Profile shift, in modules. */
   shift: number;
 }
+
+export interface ConeParameters {
+  bottom_diameter: number;
+  top_diameter: number;
+  height: number;
+}
+
+export interface SphereParameters { diameter: number; }
+export interface TorusParameters { major_diameter: number; minor_diameter: number; }
+
+export interface EdgeFilletParameters {
+  target_feature: string | null;
+  length: number;
+  radius: number;
+}
+
+export interface EdgeChamferParameters {
+  target_feature: string | null;
+  length: number;
+  width: number;
+}
+
+export interface LinearPatternParameters {
+  target_feature: string;
+  count: number;
+  spacing: number;
+  axis: Vec3;
+}
+
+export interface CircularPatternParameters {
+  target_feature: string;
+  count: number;
+  radius: number; // Compatibility hint; seed position and center determine the actual radius.
+  sweep_angle: number;
+  axis: Vec3;
+}
+
+export interface SketchParameters {
+  vertices: Vec2[];
+  height: number;
+  draft_angle: number;
+}
+
+export interface ProfileEntity {
+  id: string; kind: "rectangle" | "circle"; operation: "add" | "subtract";
+  x: number; y: number; width: number | null; height: number | null; diameter: number | null;
+}
+export interface DimensionConstraint {
+  id: string; kind: "dimension"; entity_id: string;
+  parameter: "x" | "y" | "width" | "height" | "diameter"; value: number;
+}
+export interface CentreConstraint {
+  id: string; kind: "coincident"; entity_a: string; entity_b: string;
+}
+export interface ProfileSolution {
+  status: "underconstrained" | "fully_constrained" | "conflicting";
+  degrees_of_freedom: number; conflicts: string[]; redundant: string[];
+  free_parameters: string[]; entities: ProfileEntity[];
+}
+export interface ProfileParameters {
+  entities: ProfileEntity[]; constraints: (DimensionConstraint | CentreConstraint)[];
+  solution: ProfileSolution | null;
+}
+export interface ProfileFeature extends FeatureBase {
+  kind: "profile"; operation: "add"; parameters: ProfileParameters;
+}
+
+export interface ThreadedHoleParameters {
+  designation: string;
+  pitch: number | null;
+  diameter: number;
+  through: boolean;
+  depth: number | null;
+}
+
+export interface FastenerParameters {
+  designation: string;
+  diameter: number;
+  length: number;
+  head_type: "socket" | "hex" | "flat" | "button";
+}
+
+export interface ShellParameters {
+  target_feature: string | null;
+  thickness: number;
+  open_faces: string[];
+}
+
+export interface RevolveParameters {
+  vertices: Vec2[];
+  angle: number;
+  axis: Vec3;
+}
+
+export interface ExtrudeParameters {
+  target_feature: string;
+  amount: number;
+  taper: number;
+  twist: number;
+}
+
+export interface EdgeDict {
+  type: string;
+  p1: Vec2;
+  p2: Vec2;
+  p3: Vec2 | null;
+}
+
+export interface LoftSection {
+  vertices: Vec2[] | null;
+  edges: EdgeDict[] | null;
+  placement: Placement | null;
+}
+
+export interface LoftParameters { sections: LoftSection[]; }
 
 export interface BoxFeature extends FeatureBase {
   kind: "box";
@@ -119,24 +216,181 @@ export interface GearFeature extends FeatureBase {
   parameters: GearParameters;
 }
 
-export type Feature = BoxFeature | CylinderFeature | HoleFeature | GearFeature;
+export interface ConeFeature extends FeatureBase {
+  kind: "cone";
+  operation: "add" | "subtract";
+  parameters: ConeParameters;
+}
+
+export interface SphereFeature extends FeatureBase {
+  kind: "sphere";
+  operation: "add" | "subtract";
+  parameters: SphereParameters;
+}
+
+export interface TorusFeature extends FeatureBase {
+  kind: "torus";
+  operation: "add" | "subtract";
+  parameters: TorusParameters;
+}
+
+export interface EdgeFilletFeature extends FeatureBase {
+  kind: "edge_fillet";
+  operation: "subtract";
+  parameters: EdgeFilletParameters;
+}
+
+export interface EdgeChamferFeature extends FeatureBase {
+  kind: "edge_chamfer";
+  operation: "subtract";
+  parameters: EdgeChamferParameters;
+}
+
+export interface SketchFeature extends FeatureBase {
+  kind: "sketch";
+  operation: "add" | "subtract";
+  parameters: SketchParameters;
+}
+
+export interface LinearPatternFeature extends FeatureBase {
+  kind: "linear_pattern";
+  operation: "add" | "subtract";
+  parameters: LinearPatternParameters;
+}
+
+export interface CircularPatternFeature extends FeatureBase {
+  kind: "circular_pattern";
+  operation: "add" | "subtract";
+  parameters: CircularPatternParameters;
+}
+
+export interface ThreadedHoleFeature extends FeatureBase {
+  kind: "threaded_hole";
+  operation: "subtract";
+  parameters: ThreadedHoleParameters;
+}
+
+export interface FastenerFeature extends FeatureBase {
+  kind: "fastener";
+  operation: "add";
+  parameters: FastenerParameters;
+}
+
+export interface ShellFeature extends FeatureBase {
+  kind: "shell";
+  operation: "modify";
+  parameters: ShellParameters;
+}
+
+export interface RevolveFeature extends FeatureBase {
+  kind: "revolve";
+  operation: "add" | "subtract";
+  parameters: RevolveParameters;
+}
+
+export interface ExtrudeFeature extends FeatureBase {
+  kind: "extrude";
+  operation: "add" | "subtract";
+  parameters: ExtrudeParameters;
+}
+
+export interface LoftFeature extends FeatureBase {
+  kind: "loft";
+  operation: "add" | "subtract";
+  parameters: LoftParameters;
+}
+
+export type Feature =
+  | BoxFeature | CylinderFeature | HoleFeature | GearFeature | ConeFeature
+  | SphereFeature | TorusFeature | EdgeFilletFeature | EdgeChamferFeature
+  | SketchFeature | ProfileFeature | LinearPatternFeature | CircularPatternFeature
+  | ThreadedHoleFeature | FastenerFeature | ShellFeature | RevolveFeature
+  | ExtrudeFeature | LoftFeature;
+
 export type FeatureKind = Feature["kind"];
+
+export interface Part {
+  id: string;
+  name: string;
+  features: Feature[];
+}
+
+export interface Component {
+  id: string;
+  name: string;
+  part_id: string | null;
+  catalog_sku: string | null;
+  sub_assembly_id: string | null;
+  placement: Placement;
+}
+
+// Targets are assembly coordinates after initial placement, before joint solving.
+// Runtime supports rigid A-anchors-B forests: both opposing normals, or neither
+// for translation only; initial placement determines twist. Unsupported motion,
+// closed loops and feature-bound anchors are rejected by geometry.
+export interface Joint {
+  id: string;
+  kind: "rigid" | "revolute" | "cylindrical" | "slider" | "ball";
+  component_a: string;
+  component_b: string;
+  target_a: TargetRef;
+  target_b: TargetRef;
+}
+
+export interface Assembly {
+  parts: Part[];
+  components: Component[];
+  joints: Joint[];
+}
+
+export interface SurfaceReference {
+  version: 1;
+  ledger_id: string;
+  component_path: string[];
+  source_ledger_id: string;
+  source_part_id: string | null;
+  feature_id: string;
+  feature_kind: "box" | "cylinder" | "hole" | "extrude";
+  profile_id?: string | null;
+  entity_id?: string | null;
+  operation: "add" | "subtract";
+  role: "top_face" | "bottom_face" | "side_x_pos" | "side_x_neg" | "side_y_pos" | "side_y_neg" | "lateral_face" | "bore";
+}
+
+export interface Parameter {
+  unit: "mm" | "scalar";
+  value: number | null;
+  expression: string | null;
+}
+export interface ParameterBinding {
+  feature_id: string;
+  target: "length" | "width" | "height" | "diameter" | "depth" | "amount" | "x" | "y" | "z" | "value";
+  constraint_id?: string | null;
+  expression: string;
+}
+export interface Relationships {
+  parameters: Record<string, Parameter>;
+  bindings: ParameterBinding[];
+  constraints: { left: string; operator: "<" | "<=" | ">" | ">="; right: string; message: string }[];
+}
 
 export interface Ledger {
   schema_version: 1;
   project_id: string;
-  /** Monotonic, server-owned. A revision that exists has been built. */
   revision: number;
   metadata: Metadata;
-  /** ORDERED — order is build order and matters for booleans. */
   features: Feature[];
+  assembly: Assembly | null;
+  /** Optional on older documents; saved annotations can become unresolved. */
+  surface_references?: Record<string, SurfaceReference>;
+  /** Optional on older documents; numeric features are resolved by the server. */
+  relationships?: Relationships;
 }
 
 export function featureById(ledger: Ledger, id: string): Feature | undefined {
-  return ledger.features.find((f) => f.id === id);
+  return ledger.features.find((feature) => feature.id === id);
 }
 
-/** Human label for a feature, for the tree panel and the selection chip. */
-export function featureLabel(f: Feature): string {
-  return f.name || f.id;
+export function featureLabel(feature: Feature): string {
+  return feature.name || feature.id;
 }

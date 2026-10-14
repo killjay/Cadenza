@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "project_id": "prj_sketch",
+  "features": [
+    {
+      "id": "feat_profile",
+      "name": "Plate sketch",
+      "kind": "profile",
+      "operation": "add",
+      "parameters": {
+        "entities": [
+          {
+            "id": "ent_plate",
+            "kind": "rectangle",
+            "operation": "add",
+            "width": 100,
+            "height": 60
+          },
+          {
+            "id": "ent_bore",
+            "kind": "circle",
+            "operation": "subtract",
+            "diameter": 20
+          }
+        ],
+        "constraints": [
+          {
+            "id": "con_x",
+            "kind": "dimension",
+            "entity_id": "ent_plate",
+            "parameter": "x",
+            "value": 0
+          },
+          {
+            "id": "con_y",
+            "kind": "dimension",
+            "entity_id": "ent_plate",
+            "parameter": "y",
+            "value": 0
+          },
+          {
+            "id": "con_width",
+            "kind": "dimension",
+            "entity_id": "ent_plate",
+            "parameter": "width",
+            "value": 100
+          },
+          {
+            "id": "con_height",
+            "kind": "dimension",
+            "entity_id": "ent_plate",
+            "parameter": "height",
+            "value": 60
+          },
+          {
+            "id": "con_diameter",
+            "kind": "dimension",
+            "entity_id": "ent_bore",
+            "parameter": "diameter",
+            "value": 20
+          },
+          {
+            "id": "con_center",
+            "kind": "coincident",
+            "entity_a": "ent_plate",
+            "entity_b": "ent_bore"
+          }
+        ]
+      }
+    },
+    {
+      "id": "feat_extrusion",
+      "name": "Plate extrusion",
+      "kind": "extrude",
+      "operation": "add",
+      "parameters": {
+        "target_feature": "feat_profile",
+        "amount": 8
+      }
+    }
+  ],
+  "relationships": {
+    "parameters": {
+      "plate_width": {
+        "unit": "mm",
+        "value": 100
+      },
+      "bore_diameter": {
+        "unit": "mm",
+        "value": 20
+      },
+      "thickness": {
+        "unit": "mm",
+        "value": 8
+      }
+    },
+    "bindings": [
+      {
+        "feature_id": "feat_profile",
+        "constraint_id": "con_width",
+        "target": "value",
+        "expression": "plate_width"
+      },
+      {
+        "feature_id": "feat_profile",
+        "constraint_id": "con_diameter",
+        "target": "value",
+        "expression": "bore_diameter"
+      },
+      {
+        "feature_id": "feat_extrusion",
+        "target": "amount",
+        "expression": "thickness"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import { useStore } from "../lib/store";
+import { DiagnosticsControls } from "./DiagnosticsControls";
 
 const DOT: Record<string, string> = {
   open: "bg-green",
@@ -12,7 +13,7 @@ export function StatusBar() {
   const connection = useStore((s) => s.connection);
   const detail = useStore((s) => s.connectionDetail);
   const kernel = useStore((s) => s.kernel);
-  const selection = useStore((s) => s.selection);
+  const selections = useStore((s) => s.selections);
   const connect = useStore((s) => s.connect);
 
   return (
@@ -51,10 +52,11 @@ export function StatusBar() {
       </span>
 
       <div className="flex-1" />
+      <DiagnosticsControls />
 
-      {selection && (
+      {selections.length > 0 && (
         <span className="font-mono">
-          {selection.point.map((n) => n.toFixed(2)).join("  ")} mm
+          {selections[0].point.map((n: number) => n.toFixed(2)).join("  ")} mm
         </span>
       )}
       <span>mm · Z-up</span>

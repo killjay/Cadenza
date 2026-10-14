@@ -1,0 +1,38 @@
+{
+  "kind": "proposal",
+  "description": "Detach comp_b (B) by removing the authorized joint_existing, then move B to X=35 mm, keeping Y, Z and rotation unchanged. Note: this owner definition is shared by First and Second, so the change applies to both occurrences.",
+  "operations": [
+    {
+      "op": "remove_joint",
+      "joint_id": "joint_existing"
+    },
+    {
+      "op": "set_instance_placement",
+      "component_id": "comp_b",
+      "placement": {
+        "origin": [
+          35,
+          0,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "assumptions": [
+    {
+      "field": "placement.origin",
+      "value": [
+        35,
+        0,
+        0
+      ],
+      "basis": "X interpreted as absolute X in owner frame; Y and Z preserved from stored placement.",
+      "confidence": 0.8
+    }
+  ]
+}

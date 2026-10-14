@@ -1,0 +1,7 @@
+{
+    "extraPaths": [
+        "./backend",
+        "./geometry",
+        "./shared"
+    ]
+}

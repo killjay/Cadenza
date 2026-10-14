@@ -119,10 +119,10 @@ def test_prompt_without_images_decodes_to_nothing():
 # --------------------------------------------------------------------------- #
 
 
-def test_an_image_routes_to_the_draftsman_even_on_a_non_empty_ledger(plate_ledger):
-    """Normally a populated ledger means "edit". An image means "read this instead"."""
-    assert route(plate_ledger, "build this", has_images=False).agent is AgentKind.MACHINIST
-    assert route(plate_ledger, "build this", has_images=True).agent is AgentKind.DRAFTSMAN
+@pytest.mark.parametrize("has_images", [False, True])
+def test_selection_routes_to_editor_otherwise_architect_classifies(plate_ledger, has_images):
+    assert route(plate_ledger, "build this", has_images=has_images).agent is AgentKind.ARCHITECT
+    assert route(plate_ledger, "edit this", has_images=has_images, has_target=True).agent is AgentKind.MACHINIST
 
 
 def test_the_vision_block_appears_only_when_an_image_is_attached():
@@ -184,6 +184,10 @@ class FakeClient:
         self.calls.append(
             {"stage": stage, "system": agent_card.system_prompt, "user": user, "images": images or []}
         )
+        if stage == "architect":
+            return {"is_assembly": False, "is_edit": False, "bom": [], "summary": "draftsman expected"}
+        if stage == "librarian":
+            return {"queries": [], "summary": "none"}
         return self.payload
 
 
@@ -247,10 +251,14 @@ async def test_a_sketch_reaches_the_provider_as_image_content():
     await _run(session, client, [("image/png", PNG_1PX)])
 
     assert client.calls, "the draftsman was never called"
-    call = client.calls[0]
-    assert call["stage"] == "draftsman"
+    call = next((c for c in client.calls if c["stage"] == "draftsman"), None)
+    assert call is not None, "draftsman was not found in calls"
     assert call["images"] == [("image/png", PNG_1PX)]
     assert "READING AN ATTACHED IMAGE" in call["system"]
+    architect_call = next(c for c in client.calls if c["stage"] == "architect")
+    assert architect_call["images"] == call["images"]
+    context = json.loads(architect_call["user"])
+    assert context["current_ledgers"][session.primary_ledger_id]["features"] == []
 
 
 @pytest.mark.anyio

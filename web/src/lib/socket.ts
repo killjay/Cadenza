@@ -20,6 +20,7 @@
  *     mesh last.
  */
 import { decodeBlobFrame } from "@cadenza/shared";
+import { recordDiagnostic } from "./diagnostics";
 import type { ClientFrame, InlineImage, ServerFrame, Target, Vec3 } from "./types";
 
 export type ConnectionState = "idle" | "connecting" | "open" | "closed" | "error";
@@ -28,6 +29,7 @@ export interface GeometryPayload {
   revision: number;
   glb: ArrayBuffer;
   step?: ArrayBuffer;
+  source?: "server" | "local" | "preview" | "source";
 }
 
 export interface SocketHandlers {
@@ -58,12 +60,12 @@ export function newMessageId(): string {
 
 interface PendingGeometry {
   revision: number;
-  expected: number;
+  expected: Map<string, number>;
   glb?: ArrayBuffer;
   step?: ArrayBuffer;
 }
 
-class CadenzaSocket {
+export class CadenzaSocket {
   private ws: WebSocket | null = null;
   private handlers: SocketHandlers | null = null;
   private pending: PendingGeometry | null = null;
@@ -81,6 +83,8 @@ class CadenzaSocket {
     this.ws = ws;
 
     ws.onopen = () => {
+      recordDiagnostic("socket.open");
+      if (this.ws !== ws) return;
       handlers.onState("open", url);
       this.send({
         type: "client.hello",
@@ -89,9 +93,10 @@ class CadenzaSocket {
       });
       for (const msg of this.queue.splice(0)) ws.send(msg);
     };
-    ws.onclose = (e) => handlers.onState("closed", `code ${e.code}`);
-    ws.onerror = () => handlers.onState("error", url);
+    ws.onclose = (e) => { recordDiagnostic("socket.closed", { code: e.code }); if (this.ws === ws) handlers.onState("closed", `code ${e.code}`); };
+    ws.onerror = () => { recordDiagnostic("socket.error"); if (this.ws === ws) handlers.onState("error", url); };
     ws.onmessage = (ev: MessageEvent<string | ArrayBuffer>) => {
+      if (this.ws !== ws) return;
       if (typeof ev.data === "string") {
         let frame: ServerFrame;
         try {
@@ -107,10 +112,22 @@ class CadenzaSocket {
   }
 
   private receive(frame: ServerFrame): void {
+    recordDiagnostic("frame.received", frame);
+    if (frame.type === "session.ready") {
+      this.pending = null;
+      this.shownRevision = frame.revision ?? 0;
+    }
+    if (frame.type === "ledger.updated") {
+      if (frame.revision < this.shownRevision) return;
+      this.shownRevision = frame.revision;
+      this.pending = null;
+    }
     if (frame.type === "geometry.ready") {
+      if (frame.revision < this.shownRevision) return;
       // The manifest declares what is coming. `expected` counts only the blobs
       // the server actually built, so a STEP-less build still completes.
-      this.pending = { revision: frame.revision, expected: frame.blobs.length };
+      this.shownRevision = frame.revision;
+      this.pending = { revision: frame.revision, expected: new Map(frame.blobs.map(b => [b.artifact, b.bytes])) };
       if (frame.blobs.length === 0) this.pending = null;
     }
     this.handlers?.onFrame(frame);
@@ -128,14 +145,13 @@ class CadenzaSocket {
     // A blob older than what is on screen is stale by definition.
     if (header.revision < this.shownRevision) return;
 
-    if (!this.pending || this.pending.revision !== header.revision) {
-      this.pending = { revision: header.revision, expected: 2 };
-    }
+    if (!this.pending || this.pending.revision !== header.revision) return;
+    if (this.pending.expected.get(header.artifact) !== payload.byteLength) return;
     if (header.artifact === "glb") this.pending.glb = payload;
     else if (header.artifact === "step") this.pending.step = payload;
 
     const have = (this.pending.glb ? 1 : 0) + (this.pending.step ? 1 : 0);
-    if (have < this.pending.expected) return;
+    if (have < this.pending.expected.size) return;
 
     const { revision, glb, step } = this.pending;
     this.pending = null;
@@ -145,29 +161,33 @@ class CadenzaSocket {
   }
 
   send(frame: ClientFrame): void {
+    recordDiagnostic("frame.sent", frame);
     const msg = JSON.stringify(frame);
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(msg);
     else this.queue.push(msg);
   }
 
   /**
-   * The one mutating frame. `target` present => Point & Speak; `images` present
+   * The one mutating frame. `targets` present => Point & Speak; `images` present
    * => the server routes to the Draftsman and reads the sketch.
    */
   sendPrompt(args: {
     prompt: string;
-    target?: Target | null;
+    targets?: Target[];
     images?: InlineImage[];
     baseRevision?: number;
+    activeLedgerIds?: string[];
   }): string {
     const messageId = newMessageId();
     this.send({
       type: "user.prompt",
       message_id: messageId,
       prompt: args.prompt,
-      target: args.target ?? null,
+      preview: true,
+      targets: args.targets ?? [],
       base_revision: args.baseRevision ?? null,
       ...(args.images?.length ? { images: args.images } : {}),
+      ...(args.activeLedgerIds ? { active_ledger_ids: args.activeLedgerIds } : {}),
     });
     return messageId;
   }
@@ -178,9 +198,26 @@ class CadenzaSocket {
     return messageId;
   }
 
+  sendLog(level: "info" | "warn" | "error", message: string, data?: any, messageId?: string): void {
+    recordDiagnostic("client.log", { ...data, level, message_id: messageId });
+    this.send({
+      type: "client.log",
+      level,
+      message,
+      data,
+      message_id: messageId,
+    });
+  }
+
   reset(name = "Untitled Part"): void {
-    this.shownRevision = 0;
+    this.pending = null;
     this.send({ type: "session.reset", message_id: newMessageId(), name });
+  }
+
+  undo(revision?: number, baseRevision?: number): string {
+    const messageId = newMessageId();
+    this.send({ type: "session.undo", message_id: messageId, revision: revision ?? null, base_revision: baseRevision ?? null });
+    return messageId;
   }
 
   /** Let the store tell us what is on screen, so stale blobs can be dropped. */
@@ -192,6 +229,7 @@ class CadenzaSocket {
     this.ws?.close();
     this.ws = null;
     this.pending = null;
+    this.queue = [];
   }
 }
 

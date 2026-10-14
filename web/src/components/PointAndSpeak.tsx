@@ -22,7 +22,8 @@ const SUGGESTIONS = [
   "Round these edges 3 mm",
 ];
 
-function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selection"]>): string {
+function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selections"][0]>): string {
+  if (sel.saved_reference) return sel.label ?? "Saved surface";
   const info = sel.info;
   if (!info) return "resolving face…";
   if (info.surfaceType === "cylinder" && info.radius) {
@@ -32,9 +33,9 @@ function describe(sel: NonNullable<ReturnType<typeof useStore.getState>["selecti
 }
 
 export function PointAndSpeak() {
-  const selection = useStore((s) => s.selection);
+  const selections = useStore((s) => s.selections);
   const open = useStore((s) => s.promptOpen);
-  const busy = useStore((s) => s.busy);
+  const busy = useStore((s) => s.busy || !!s.draft);
   const verify = useStore((s) => s.verify);
   const submitPrompt = useStore((s) => s.submitPrompt);
   const select = useStore((s) => s.select);
@@ -51,25 +52,25 @@ export function PointAndSpeak() {
       // Focus after paint so the caret lands in the box that just appeared.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-  }, [open, selection?.faceHash]);
+  }, [open, selections.length ? selections[0].faceHash : undefined, selections[0]?.saved_reference]);
 
   // Place it at the cursor, flipped away from whichever edge it would overrun.
   useLayoutEffect(() => {
-    if (!open || !selection) return;
+    if (!open || selections.length === 0) return;
     const el = boxRef.current;
     const w = el?.offsetWidth ?? 320;
     const h = el?.offsetHeight ?? 96;
     const gap = 14;
-    const { x, y } = selection.screen;
+    const { x, y } = selections[0].screen;
 
     let left = x + gap;
     let top = y + gap;
     if (left + w > window.innerWidth - 12) left = x - w - gap;
     if (top + h > window.innerHeight - 12) top = y - h - gap;
     setPos({ left: Math.max(12, left), top: Math.max(12, top) });
-  }, [open, selection]);
+  }, [open, selections]);
 
-  if (!open || !selection) return null;
+  if (!open || selections.length === 0) return null;
 
   const submit = (): void => {
     if (text.trim() === "") return;
@@ -79,15 +80,15 @@ export function PointAndSpeak() {
 
   /** Re-runs the pick inside the kernel, against the exact B-rep. */
   const runVerify = async (): Promise<void> => {
-    const facts = selection.info;
+    const facts = selections[0].info;
     if (!facts) return;
     // Fire the ray from just outside the surface, back along its own normal —
     // the kernel then has to find the same face the tessellation did.
-    const n = facts.normal ?? selection.normal;
+    const n = facts.normal ?? selections[0].normal;
     const origin: [number, number, number] = [
-      selection.point[0] + n[0] * 50,
-      selection.point[1] + n[1] * 50,
-      selection.point[2] + n[2] * 50,
+      selections[0].point[0] + n[0] * 50,
+      selections[0].point[1] + n[1] * 50,
+      selections[0].point[2] + n[2] * 50,
     ];
     const dir: [number, number, number] = [-n[0], -n[1], -n[2]];
     const hit = await occt.raycast(origin, dir);
@@ -96,13 +97,13 @@ export function PointAndSpeak() {
         ? {
             faceHash: hit.faceHash,
             queryMs: Math.round(hit.queryMs * 10) / 10,
-            agrees: hit.faceHash === selection.faceHash,
+            agrees: hit.faceHash === selections[0].faceHash,
           }
         : { faceHash: -1, queryMs: 0, agrees: false },
     );
   };
 
-  const [px, py, pz] = selection.point;
+  const [px, py, pz] = selections[0].point;
 
   return (
     <div
@@ -113,7 +114,7 @@ export function PointAndSpeak() {
     >
       {/* what you pointed at */}
       <div className="flex items-center justify-between gap-2 border-b border-hairline px-2.5 py-1.5">
-        <span className="truncate text-11 text-ink-2">{describe(selection)}</span>
+        <span className="truncate text-11 text-ink-2">{describe(selections[0])}</span>
         <span className="shrink-0 font-mono text-10 text-ink-4">
           {px.toFixed(1)}, {py.toFixed(1)}, {pz.toFixed(1)}
         </span>
@@ -167,7 +168,8 @@ export function PointAndSpeak() {
 
       {/* spike instrumentation — proves the fast pick and the kernel agree */}
       <div className="flex items-center justify-between gap-2 border-t border-hairline px-2.5 py-1 text-10 text-ink-4">
-        <span className="font-mono">face #{selection.faceHash}</span>
+        {selections[0].saved_reference ? <span>Saved surface checked on the server</span> : <>
+        <span className="font-mono">face #{selections[0].faceHash}</span>
         {verify ? (
           <span className={verify.agrees ? "text-green" : "text-red"}>
             {verify.agrees ? "kernel agrees" : `kernel says #${verify.faceHash}`} · {verify.queryMs}
@@ -178,6 +180,7 @@ export function PointAndSpeak() {
             verify against B-rep
           </button>
         )}
+        </>}
       </div>
     </div>
   );

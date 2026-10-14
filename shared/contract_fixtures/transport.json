@@ -1,0 +1,25 @@
+{
+  "client": [
+    { "type": "client.hello", "contract_version": "1.0.0" },
+    { "type": "client.hello", "contract_version": "1.0.0", "session_id": "ses_resume" },
+    { "type": "user.prompt", "message_id": "msg_prompt", "prompt": "Add a hole", "targets": [{ "point": [0, 0, 10], "normal": [0, 0, 1] }], "base_revision": 3, "active_ledger_ids": ["prj_primary"], "images": [] },
+    { "type": "spatial.probe", "message_id": "msg_probe", "point": [0, 0, 10], "prefer": "face" },
+    { "type": "ledger.request", "message_id": "msg_sync" },
+    { "type": "ledger.create", "message_id": "msg_create", "name": "Bracket", "base_revision": 3 },
+    { "type": "session.undo", "message_id": "msg_undo", "base_revision": 3 },
+    { "type": "session.reset", "message_id": "msg_reset", "name": "Fresh Part" },
+    { "type": "ping", "t": 1 },
+    { "type": "client.log", "message_id": "msg_log", "level": "info", "message": "ready", "data": { "revision": 3 } }
+  ],
+  "server": [
+    { "type": "session.ready", "session_id": "ses_resume", "contract_version": "1.0.0", "store": { "prj_primary": { "project_id": "prj_primary" } }, "revision": 3, "can_undo": true, "limits": {}, "agents_available": true },
+    { "type": "agent.status", "message_id": "msg_prompt", "phase": "building", "detail": "Building", "elapsed_ms": 12 },
+    { "type": "agent.message", "message_id": "msg_prompt", "text": "Added the hole.", "assumptions": [], "needs_clarification": false },
+    { "type": "ledger.updated", "message_id": "msg_prompt", "ledger_id": "prj_primary", "revision": 4, "store": { "prj_primary": { "project_id": "prj_primary", "revision": 4 } }, "can_undo": true, "patch": [], "summary": "Added a hole" },
+    { "type": "geometry.ready", "message_id": "msg_prompt", "revision": 4, "blobs": [{ "artifact": "glb", "content_type": "model/gltf-binary", "bytes": 3, "sha256": "abc", "url": "/sessions/ses_resume/artifacts/4/model.glb" }], "stats": {}, "warnings": [], "stub": false, "empty": false },
+    { "type": "geometry.failed", "message_id": "msg_prompt", "current_revision": 3, "code": "GEOMETRY_KERNEL_FAILURE", "message": "Could not build" },
+    { "type": "spatial.result", "message_id": "msg_probe", "hit": null },
+    { "type": "error", "message_id": "msg_prompt", "code": "REVISION_CONFLICT", "message": "Stale revision", "recoverable": true },
+    { "type": "pong", "t": 1 }
+  ]
+}

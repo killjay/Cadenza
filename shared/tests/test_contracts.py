@@ -6,20 +6,19 @@ somebody changed a contract without telling anybody.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from cadenza_contracts import (
-    BBox,
     BlobDescriptor,
-    BuildStats,
     CadenzaError,
-    EntityRef,
     ErrorCode,
     GeometryReady,
     LedgerUpdated,
     PatchOp,
-    SpatialHit,
     SpatialResult,
     Target,
     UserPrompt,
@@ -38,7 +37,14 @@ from cadenza_contracts.fixtures import (
     THICKEN_PATCH,
     plate_with_hole,
 )
-from cadenza_contracts.messages import BlobHeader, decode_blob_frame, encode_blob_frame
+from cadenza_contracts.messages import (
+    BlobHeader,
+    BuildStats as WireBuildStats,
+    EntityRef as WireEntityRef,
+    SpatialHit as WireSpatialHit,
+    decode_blob_frame,
+    encode_blob_frame,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -128,7 +134,7 @@ def test_client_message_round_trip():
     msg = UserPrompt(
         message_id=new_message_id(),
         prompt="make this twice as thick",
-        target=Target(point=[10.5, 0.0, 20.0], normal=[0.0, 0.0, 1.0]),
+        targets=[Target(point=[10.5, 0.0, 20.0], normal=[0.0, 0.0, 1.0])],
         base_revision=1,
     )
     assert parse_client_message(dump_message(msg)) == msg
@@ -142,8 +148,15 @@ def test_unknown_message_type_is_rejected():
 def test_server_message_round_trip():
     led = plate_with_hole(height=40.0, revision=2)
     for msg in (
-        LedgerUpdated(revision=2, ledger=led, patch=THICKEN_PATCH, summary="ok"),
+        LedgerUpdated(
+            message_id="msg_x",
+            revision=2,
+            store={led.project_id: led},
+            patch=[op.model_dump(mode="json", by_alias=True) for op in THICKEN_PATCH],
+            summary="ok",
+        ),
         GeometryReady(
+            message_id="msg_x",
             revision=2,
             blobs=[
                 BlobDescriptor(
@@ -151,10 +164,11 @@ def test_server_message_round_trip():
                     content_type="model/gltf-binary",
                     bytes=12,
                     sha256="ab" * 32,
+                    url="/sessions/ses_x/artifacts/2/model.glb",
                 )
             ],
-            stats=BuildStats(
-                bbox=BBox(min=[-50, -50, 0], max=[50, 50, 40]),
+            stats=WireBuildStats(
+                bbox={"min": [-50, -50, 0], "max": [50, 50, 40]},
                 volume_mm3=396_858.4,
                 face_count=8,
                 build_ms=120,
@@ -162,8 +176,8 @@ def test_server_message_round_trip():
         ),
         SpatialResult(
             message_id="msg_x",
-            hit=SpatialHit(
-                entity=EntityRef(kind="face", index=5, revision=2),
+            hit=WireSpatialHit(
+                entity=WireEntityRef(kind="face", index=5, revision=2),
                 point=[10.5, 0.0, 40.0],
                 normal=[0.0, 0.0, 1.0],
                 distance_mm=0.002,
@@ -176,6 +190,23 @@ def test_server_message_round_trip():
         ),
     ):
         assert parse_server_message(dump_message(msg)) == msg
+
+
+def test_cross_language_transport_fixtures_match_python_contract():
+    fixture_path = Path(__file__).parents[1] / "contract_fixtures" / "transport.json"
+    fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    client_types = {parse_client_message(frame).type for frame in fixtures["client"]}
+    server_types = {parse_server_message(frame).type for frame in fixtures["server"]}
+
+    assert client_types == {
+        "client.hello", "user.prompt", "spatial.probe", "ledger.request",
+        "ledger.create", "session.undo", "session.reset", "ping", "client.log",
+    }
+    assert server_types == {
+        "session.ready", "agent.status", "agent.message", "ledger.updated",
+        "geometry.ready", "geometry.failed", "spatial.result", "error", "pong",
+    }
 
 
 def test_blob_frame_round_trip():
