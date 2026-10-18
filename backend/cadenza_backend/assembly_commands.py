@@ -5,13 +5,13 @@ from typing import NoReturn
 from math import hypot
 
 from cadenza_contracts.assembly_commands import (AssemblyCommand, AssemblyCapabilitiesResponse,
-    AssemblyCapabilitiesRequest, AddRigidJoint, RemoveJoint, CreateSubassembly,
+    AssemblyCapabilitiesRequest, AddPlanarAttachment, AddRigidJoint, RemoveJoint, CreateSubassembly,
     InitializeAssembly, AddInstance, DuplicateInstance, SetInstancePlacement, RenameInstance,
-    RemoveInstance, MAX_COMPONENTS, MAX_LEAVES, MAX_DEPTH, OPERATIONS, E2_OPERATIONS)
+    RemoveInstance, MAX_COMPONENTS, MAX_LEAVES, MAX_DEPTH, OPERATIONS, E2_OPERATIONS, PLANAR_OPERATIONS)
 from cadenza_contracts.ledger import Component, Ledger, Assembly, Joint
 from cadenza_contracts.references import validate_references
 from cadenza_backend.contracts_bridge import CadenzaError, ErrorCode, PatchOp
-from cadenza_backend.geometry_jobs import build_design
+from cadenza_backend.geometry_jobs import build_design, inspect
 from cadenza_backend.ledger_store import LedgerStore, apply_patch
 
 
@@ -86,12 +86,14 @@ def validate_joints(assembly: Assembly) -> None:
     ids = {c.id for c in assembly.components}
     incoming: dict[str, str] = {}
     for joint in assembly.joints:
-        if joint.kind != "rigid" or joint.target_a.reference_feature or joint.target_b.reference_feature:
-            raise ValueError("These controls support coordinate-based rigid attachments only.")
-        # Reuse strict authoring validation for imported anchors, without duplicating the solver.
-        AddRigidJoint.model_validate(dict(op="add_rigid_joint", component_a=joint.component_a,
-            component_b=joint.component_b, target_a=dict(point=list(joint.target_a.point), normal=list(joint.target_a.normal) if joint.target_a.normal else None),
-            target_b=dict(point=list(joint.target_b.point), normal=list(joint.target_b.normal) if joint.target_b.normal else None)))
+        if joint.kind != "rigid":
+            raise ValueError("These controls support rigid attachments only.")
+        if joint.target_a.mode == "coordinate" and joint.target_b.mode == "coordinate":
+            if joint.target_a.reference_feature or joint.target_b.reference_feature:
+                raise ValueError("Use explicit face attachments instead of feature-bound coordinates.")
+            AddRigidJoint.model_validate(dict(op="add_rigid_joint", component_a=joint.component_a,
+                component_b=joint.component_b, target_a=dict(point=list(joint.target_a.point), normal=list(joint.target_a.normal) if joint.target_a.normal else None),
+                target_b=dict(point=list(joint.target_b.point), normal=list(joint.target_b.normal) if joint.target_b.normal else None)))
         a, b = joint.component_a, joint.component_b
         if a not in ids or b not in ids or a == b:
             raise ValueError("Attachments require two different direct instances.")
@@ -123,7 +125,9 @@ def capabilities(session, request: str | AssemblyCapabilitiesRequest) -> Assembl
     elif owner is not None and owner.assembly is not None:
         try:
             assembly_instances(session.snapshot(), session.primary_ledger_id)
-            if request.version == 2:
+            if request.version < 3 and any(j.target_a.mode == "planar_face" for j in owner.assembly.joints):
+                raise ValueError("Face attachments require version 3 controls. Refresh or upgrade the application.")
+            if request.version >= 2:
                 validate_joints(owner.assembly)
                 if any(c.placement.relative_to for c in owner.assembly.components):
                     raise ValueError("Relative component placements are not supported by these controls.")
@@ -131,16 +135,16 @@ def capabilities(session, request: str | AssemblyCapabilitiesRequest) -> Assembl
             reason = str(exc)
     return AssemblyCapabilitiesResponse(message_id=request.message_id, session_id=session.id,
         revision=session.revision, ledger_id=ledger_id, version=request.version, owner_path=request.owner_path,
-        operations=list(E2_OPERATIONS if request.version == 2 else OPERATIONS),
+        operations=list(PLANAR_OPERATIONS if request.version == 3 else E2_OPERATIONS if request.version == 2 else OPERATIONS),
         can_initialize=reason is None and owner is not None and owner.assembly is None,
         can_edit=reason is None and owner is not None and owner.assembly is not None, reason=reason)
 
 
-def compile_command(session, request: AssemblyCommand, *, new_definition: Ledger | None = None) -> list[PatchOp]:
+def compile_command(session, request: AssemblyCommand, *, new_definition: Ledger | None = None, planar_targets: dict[int, dict] | None = None) -> list[PatchOp]:
     def reject(message: str) -> NoReturn:
         raise CadenzaError(ErrorCode.BAD_MESSAGE, message)
     availability = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id,
-        version=2, ledger_id=request.ledger_id, owner_path=request.owner_path))
+        version=3, ledger_id=request.ledger_id, owner_path=request.owner_path))
     if availability.reason:
         reject(availability.reason)
     owner = resolve_owner(session, request.ledger_id, request.owner_path)
@@ -177,11 +181,16 @@ def compile_command(session, request: AssemblyCommand, *, new_definition: Ledger
             reject("Start the assembly before adding its instances.")
         if isinstance(operation, RemoveJoint):
             continue
-        if isinstance(operation, AddRigidJoint):
+        if isinstance(operation, (AddRigidJoint, AddPlanarAttachment)):
             targets = {operation.component_a, operation.component_b}
             if not targets <= accepted.keys() or targets & removed or targets & placed:
                 reject("Attach accepted direct instances; reposition or remove them in a separate request.")
-            joint = Joint.model_validate({**operation.model_dump(exclude={"op"}), "id": f"joint_{uuid4().hex}", "kind": "rigid"})
+            values = operation.model_dump(exclude={"op"})
+            if isinstance(operation, AddPlanarAttachment):
+                if planar_targets is None or index not in planar_targets:
+                    reject("Native face capture is required before compiling an attachment.")
+                values.update(planar_targets[index])
+            joint = Joint.model_validate({**values, "id": f"joint_{uuid4().hex}", "kind": "rigid"})
             joints.append(joint)
             patch("add", "/assembly/joints/-", joint.model_dump(mode="json"))
             continue
@@ -245,6 +254,8 @@ def compile_command(session, request: AssemblyCommand, *, new_definition: Ledger
     def signature(joint):
         result = joint.model_dump(mode="json", exclude={"id"})
         for target in ("target_a", "target_b"):
+            if result[target].get("mode") == "planar_face":
+                continue
             normal = result[target]["normal"]
             if normal is not None:
                 magnitude = hypot(*normal)
@@ -280,7 +291,7 @@ def validate_source(source: Ledger) -> None:
         raise CadenzaError(ErrorCode.BAD_MESSAGE, "Choose a nonempty source definition.")
 
 
-def prepare_command(session, request: AssemblyCommand) -> tuple[dict[str, Ledger], list[PatchOp]]:
+def prepare_command(session, request: AssemblyCommand, *, planar_targets: dict[int, dict] | None = None) -> tuple[dict[str, Ledger], list[PatchOp]]:
     creations = [op for op in request.operations if isinstance(op, CreateSubassembly)]
     definition = None
     if creations:
@@ -305,7 +316,7 @@ def prepare_command(session, request: AssemblyCommand) -> tuple[dict[str, Ledger
                 sub_assembly_id=child.source_ledger_id, placement=child.placement.model_dump())))
         definition = LedgerStore.new(name=operation.name).ledger
         definition = definition.model_copy(update={"assembly": Assembly(components=children)})
-    patches = compile_command(session, request, new_definition=definition)
+    patches = compile_command(session, request, new_definition=definition, planar_targets=planar_targets)
     owner = session.stores[request.ledger_id].ledger
     updates = {owner.project_id: apply_patch(owner, patches).ledger}
     if definition is not None:
@@ -346,7 +357,7 @@ def validate_command_delta(before: dict[str, Ledger], after: dict[str, Ledger], 
         new_components = {c.id for c in assembly.components} - old_components
         new_joints = {j.id for j in assembly.joints} - old_joints
         invalid |= len(new_components) != sum(isinstance(op, (AddInstance, DuplicateInstance, CreateSubassembly)) for op in operations)
-        invalid |= len(new_joints) != sum(isinstance(op, AddRigidJoint) for op in operations)
+        invalid |= len(new_joints) != sum(isinstance(op, (AddRigidJoint, AddPlanarAttachment)) for op in operations)
         invalid |= initialized and bool(assembly.parts or assembly.joints)
         allowed.update(f"/assembly/components/{cid}" for cid in new_components)
         allowed.update(f"/assembly/joints/{jid}" for jid in new_joints)
@@ -371,10 +382,24 @@ async def handle_assembly_command(session, request: AssemblyCommand, emit, *, pr
         raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed. Refresh before editing.")
     if session.draft or pending(session):
         raise CadenzaError(ErrorCode.BUSY, "Finish the draft or apply/cancel the preview first.")
-    ledgers, patches = prepare_command(session, request)
+    base = session.snapshot()
+    try:
+        owner = resolve_owner(session, request.ledger_id, request.owner_path)
+    except ValueError as exc:
+        raise CadenzaError(ErrorCode.BAD_MESSAGE, str(exc)) from exc
+    planar_targets = {}
+    for index, operation in enumerate(request.operations):
+        if isinstance(operation, AddPlanarAttachment):
+            planar_targets[index] = await inspect(owner, {"query_type": "capture_planar_attachment",
+                "operation": operation.model_dump(mode="json")}, base)
+            if "error" in planar_targets[index]:
+                raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, planar_targets[index]["error"])
+    if session.revision != request.base_revision or session.snapshot() != base:
+        raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed during face capture.")
+    ledgers, patches = prepare_command(session, request, planar_targets=planar_targets)
     outcome = await build_design(ledgers, session.primary_ledger_id)
     if not outcome.ok or outcome.stub:
-        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail)
+        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail, interference=outcome.interference)
     await publish_preview(session, ledgers, outcome, request.message_id, emit,
         summary=f"Preview of {len(request.operations)} assembly operation(s) in {ledgers[request.ledger_id].metadata.name}. Review shared-definition and attachment changes below.",
         patch=[p.model_dump(mode="json") for p in patches], prompt=prompt, assumptions=assumptions,

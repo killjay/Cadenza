@@ -4,9 +4,12 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cadenza_contracts.design_commands import AddBox, AddCylinder, AddHole
+from cadenza_contracts.assembly_commands import ComponentId, MAX_DEPTH
 
 MAX_SOURCE_PARTS = 32
 PartOperation = Annotated[Union[AddBox, AddCylinder, AddHole], Field(discriminator="kind")]
+OccurrencePath = Annotated[list[ComponentId], Field(min_length=1, max_length=MAX_DEPTH)]
+RigidMatrix = Annotated[list[Annotated[float, Field(strict=True, allow_inf_nan=False)]], Field(min_length=16, max_length=16)]
 
 
 class PartMessage(BaseModel):
@@ -23,7 +26,7 @@ class PartRequest(PartMessage):
     def trimmed_name(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("Name the new part")
+            raise ValueError("Enter a part name")
         return value
 
 
@@ -39,10 +42,16 @@ class PartCreate(PartRequest):
         return self
 
 
+class PartRename(PartRequest):
+    type: Literal["design.part.rename"] = "design.part.rename"
+    ledger_id: str = Field(min_length=1, max_length=200)
+
+
 class PartViewRequest(PartMessage):
     type: Literal["design.part.view"] = "design.part.view"
     base_revision: int = Field(strict=True, ge=0)
     ledger_id: str = Field(min_length=1, max_length=200)
+    component_path: OccurrencePath | None = None
 
 
 class PartViewReady(PartMessage):
@@ -54,6 +63,11 @@ class PartViewReady(PartMessage):
     glb_url: str | None = None
     step_url: str | None = None
     empty: bool = False
+    component_path: OccurrencePath | None = None
+    # Row-major rigid 4x4: source-local mm/Z-up -> project mm/Z-up.
+    source_to_project: RigidMatrix | None = None
+    context_glb_url: str | None = None
+    context_warning: str | None = None
 
 
 class PartCapabilitiesRequest(PartMessage):
@@ -68,3 +82,5 @@ class PartCapabilitiesResponse(PartMessage):
     max_operations: Literal[32] = 32
     max_sources: Literal[32] = 32
     source_view: Literal[True] = True
+    source_context: Literal[True] = True
+    rename_source: Literal[True] = True

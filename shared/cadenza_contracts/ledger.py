@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator, model_serializer
 
 from cadenza_contracts.ids import new_project_id
 from cadenza_contracts.surface_reference import ReferenceId, SurfaceReference
@@ -491,20 +491,55 @@ class Component(_Model):
         return self
 
 
+class PlanarTarget(BaseModel):
+    """Metric coordinates in a deterministic feature-local face frame."""
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    mode: Literal["planar_face"] = "planar_face"
+    reference: SurfaceReference
+    uv: Annotated[list[float], Field(min_length=2, max_length=2)]
+
+    @model_validator(mode="after")
+    def supported_face(self):
+        ref = self.reference
+        if ref.component_path or ref.source_part_id or ref.feature_kind not in {"box", "cylinder"} or ref.role == "lateral_face":
+            raise ValueError("Choose a part-local box face or cylinder end face.")
+        return self
+
+
 class Joint(_Model):
     """Targets use assembly coordinates after placement, before solving joints.
 
     Runtime currently supports rigid directed attachments: A anchors B. Supply
     both outward normals to oppose them, or neither for translation only.
-    Initial placement supplies twist. Motion, closed loops and feature-bound
-    anchors are not implemented and are rejected by the geometry layer.
+    Coordinate targets retain placement-derived twist. Planar targets re-resolve
+    explicit primitive faces and retain recorded tangent coordinates and twist.
+    Motion, closed loops and feature-bound coordinate anchors remain unsupported.
     """
     id: str = Field(pattern=r"^joint_[a-z0-9_]{1,60}$")
     kind: Literal["rigid", "revolute", "cylindrical", "slider", "ball"]
     component_a: str = Field(pattern=r"^comp_[a-z0-9_]{1,60}$")
     component_b: str = Field(pattern=r"^comp_[a-z0-9_]{1,60}$")
-    target_a: TargetRef
-    target_b: TargetRef
+    target_a: TargetRef | PlanarTarget
+    target_b: TargetRef | PlanarTarget
+    twist_deg: float | None = Field(default=None, strict=True, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def paired_modes(self):
+        planar = isinstance(self.target_a, PlanarTarget)
+        if planar != isinstance(self.target_b, PlanarTarget):
+            raise ValueError("Both attachment targets must use the same mode.")
+        if planar and (self.kind != "rigid" or self.twist_deg is None):
+            raise ValueError("Planar attachments require a rigid joint and recorded twist.")
+        if not planar and self.twist_deg is not None:
+            raise ValueError("Coordinate attachments cannot specify planar twist.")
+        return self
+
+    @model_serializer(mode="wrap")
+    def legacy_shape(self, handler):
+        result = handler(self)
+        if self.twist_deg is None:
+            result.pop("twist_deg", None)
+        return result
 
 
 class Assembly(_Model):

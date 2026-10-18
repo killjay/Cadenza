@@ -30,10 +30,12 @@ or add `--fresh` for one-process-per-job comparison.
 If the viewport stays empty and the transcript says *"built this without a
 geometry kernel"*, you are running an interpreter without build123d installed.
 
+Reviewer setup and current feature boundaries: [product walkthrough](docs/product_walkthrough.html). Keep the review checkout fixed while development continues separately.
+
 ## Start it
 
 ```bash
-cd cadenza
+cd Cadenza
 
 # API keys. Vision needs Anthropic or OpenRouter; DeepSeek's chat endpoint is
 # text-only and image input is auto-rerouted off it.

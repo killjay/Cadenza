@@ -33,6 +33,7 @@ from cadenza_backend.agents.draftsman import parse_assumptions, run_draftsman
 from cadenza_backend.agents.machinist import run_machinist
 from cadenza_backend.agents.model_client import (
     AIError,
+    AIProviderError,
     AINotConfigured,
     AIRefused,
     ModelClient,
@@ -131,6 +132,8 @@ async def handle_prompt(
                 message_id=message_id, code=ErrorCode.AGENT_REFUSED, message=str(exc)
             )
         )
+    except AIProviderError as exc:
+        await emit(ErrorMessage(message_id=message_id, code=exc.code, message=str(exc)))
     except AIError as exc:
         await emit(
             ErrorMessage(

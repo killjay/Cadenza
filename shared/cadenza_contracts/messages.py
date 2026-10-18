@@ -33,7 +33,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
-from cadenza_contracts.errors import ErrorCode
+from cadenza_contracts.errors import ErrorCode, Interference
 from cadenza_contracts.geometry import BBox
 from cadenza_contracts.ledger import Assumption, Ledger, Vec3
 from cadenza_contracts.version import CONTRACT_VERSION
@@ -42,8 +42,8 @@ from cadenza_contracts.sketch_draft import DraftStart, DraftUpdate, DraftAction,
 from cadenza_contracts.assembly_commands import AssemblyCommand, AssemblyCapabilitiesRequest, AssemblyCapabilitiesResponse
 from cadenza_contracts.assembly_commands import (AssemblyPromptTarget, ComponentId, StrictModel,
     AssemblyPromptCapabilitiesRequest, AssemblyPromptCapabilitiesResponse)
-from cadenza_contracts.part_commands import (PartRequest, PartCreate, PartViewRequest, PartViewReady,
-    PartCapabilitiesRequest, PartCapabilitiesResponse)
+from cadenza_contracts.part_commands import (PartRequest, PartCreate, PartRename, PartViewRequest, PartViewReady,
+    PartCapabilitiesRequest, PartCapabilitiesResponse, OccurrencePath, RigidMatrix)
 from cadenza_contracts.design_commands import DesignCommand
 from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse
 from cadenza_contracts.feature_capabilities import PatternCapabilitiesRequest, PatternCapabilitiesResponse
@@ -193,6 +193,22 @@ class SpatialProbe(_Msg):
     prefer: Literal["face", "edge", "vertex", "any"] = "face"
 
 
+class SourceFaceContext(StrictModel):
+    mode: Literal["edit_feature", "add_on_face"]
+    reference: SurfaceReference
+    point: list[Annotated[float, Field(allow_inf_nan=False)]] = Field(min_length=3, max_length=3)
+    normal: list[Annotated[float, Field(allow_inf_nan=False)]] = Field(min_length=3, max_length=3)
+    component_path: OccurrencePath | None = None
+
+    @model_validator(mode="after")
+    def local_face(self):
+        if self.reference.component_path or self.reference.source_part_id is not None:
+            raise ValueError("Choose a source-local face")
+        if sum(v * v for v in self.normal) < 1e-12:
+            raise ValueError("A nonzero surface normal is required")
+        return self
+
+
 class DesignPrompt(_Msg):
     type: Literal["design.prompt"] = "design.prompt"
     message_id: str = Field(min_length=1, max_length=200)
@@ -202,6 +218,19 @@ class DesignPrompt(_Msg):
     scope: Literal["source"]
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
+    face: SourceFaceContext | None = None
+
+    @model_validator(mode="after")
+    def face_target(self):
+        if self.face:
+            ref = self.face.reference
+            if ref.ledger_id != self.ledger_id or ref.source_ledger_id != self.ledger_id:
+                raise ValueError("Face belongs to another source")
+            if self.face.mode == "edit_feature" and self.feature_id != ref.feature_id:
+                raise ValueError("Select the feature that owns this face")
+            if self.face.mode == "add_on_face" and self.feature_id is not None:
+                raise ValueError("Face additions cannot modify existing features")
+        return self
 
     @field_validator("prompt")
     @classmethod
@@ -255,6 +284,7 @@ class PromptCapabilitiesResponse(_Msg):
     version: Literal[1] = 1
     scope: Literal["source"] = "source"
     max_operations: Literal[32] = 32
+    source_faces: Literal[True] = True
 
 
 class LedgerRequest(_Msg):
@@ -343,7 +373,7 @@ class ClientLog(_Msg):
 ClientMessage = Annotated[
     Union[
         AssemblyCommand, AssemblyCapabilitiesRequest, AssemblyPrompt, AssemblyPromptCapabilitiesRequest,
-        PartCreate, PartPrompt, PartViewRequest, PartCapabilitiesRequest,
+        PartCreate, PartRename, PartPrompt, PartViewRequest, PartCapabilitiesRequest,
         ClientHello,
         UserPrompt,
         SpatialProbe,
@@ -510,6 +540,7 @@ class ErrorMessage(_Msg):
     message: str
     detail: str | None = None
     recoverable: bool = True
+    interference: Interference | None = None
 
 
 class PreviewChange(_Msg):
@@ -517,6 +548,16 @@ class PreviewChange(_Msg):
     path: str
     before: Any = None
     after: Any = None
+
+
+class AttachmentContact(_Msg):
+    definition_id: str = Field(min_length=1, max_length=200)
+    joint_id: str = Field(pattern=r"^joint_[a-z0-9_]{1,60}$")
+    separation_mm: float = Field(ge=0, le=1e-4, allow_inf_nan=False)
+    normal_residual: float = Field(ge=0, le=1e-7, allow_inf_nan=False)
+    area_mm2: float = Field(gt=1e-6, allow_inf_nan=False)
+    references_resolved: Literal[True]
+    contact_verified: Literal[True]
 
 
 class PreviewReady(_Msg):
@@ -528,6 +569,7 @@ class PreviewReady(_Msg):
     prompt: str = ""
     changes: list[PreviewChange]
     checks: list[str]
+    attachment_contacts: list[AttachmentContact] = Field(default_factory=list, max_length=4096)
     assumptions: list[Assumption] = Field(default_factory=list)
     glb_url: str | None = None
     step_url: str | None = None
@@ -536,6 +578,9 @@ class PreviewReady(_Msg):
     source_glb_url: str | None = None
     source_step_url: str | None = None
     source_empty: bool = False
+    context_component_path: OccurrencePath | None = None
+    source_to_project: RigidMatrix | None = None
+    context_warning: str | None = None
     draft_id: str | None = None
     draft_revision: int | None = None
 
@@ -644,7 +689,7 @@ def decode_blob_frame(frame: bytes) -> tuple[BlobHeader, bytes]:
 __all__ = [
     "AssemblyCommand", "AssemblyCapabilitiesRequest", "AssemblyCapabilitiesResponse",
     "AssemblyPrompt", "AssemblyPromptCapabilitiesRequest", "AssemblyPromptCapabilitiesResponse",
-    "PartCreate", "PartPrompt", "PartViewRequest", "PartViewReady",
+    "PartCreate", "PartRename", "PartPrompt", "PartViewRequest", "PartViewReady",
     "PartCapabilitiesRequest", "PartCapabilitiesResponse",
     "PROTOCOL_VERSION",
     "Target",

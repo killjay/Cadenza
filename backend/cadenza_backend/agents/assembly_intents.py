@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import Field, TypeAdapter, model_validator
 
-from cadenza_contracts.assembly_commands import AssemblyOperation, StrictModel
+from cadenza_contracts.assembly_commands import CoordinateAssemblyOperation, StrictModel
 from cadenza_contracts.messages import AssemblyPrompt
 from cadenza_backend.agents.core import AgentCard
 from cadenza_backend.agents.intent_assumptions import IntentAssumption
@@ -19,7 +19,7 @@ MAX_CONTEXT_BYTES = 200_000
 class Proposal(StrictModel):
     kind: Literal["proposal"]
     description: str = Field(min_length=1, max_length=500)
-    operations: list[AssemblyOperation] = Field(min_length=1, max_length=16)
+    operations: list[CoordinateAssemblyOperation] = Field(min_length=1, max_length=16)
     assumptions: list[IntentAssumption] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="before")
@@ -47,6 +47,12 @@ class Unsupported(StrictModel):
 Intent = Annotated[Union[Proposal, Clarification, Unsupported], Field(discriminator="kind")]
 INTENT = TypeAdapter(Intent)
 CARD = AgentCard(name="Assembly editor", tools=[], output_schema={"type": "object", **INTENT.json_schema()}, system_prompt="""
+USER-FACING EXPLANATIONS: Use human part and feature names, useful dimensions and units in summaries,
+descriptions, questions and assumption explanations. Do not expose ledger IDs, schema paths or
+internal variable names in prose. Keep exact machine fields in structured operations unchanged.
+Describe a proposed change, not an applied result: acceptance happens only after the user clicks Apply.
+State important uncertainty, omissions and shared-part impact plainly. If blocked, ask one actionable
+clarification instead of asking the user to supply internal IDs. Do not claim unsupported capabilities.
 Interpret only the explicitly selected assembly target. Return proposal, clarification or unsupported.
 Never emit patches, code, owner/revision overrides, new IDs, or claims that changes were applied.
 Definition mode can initialize an eligible empty primary, add accepted source instances or create
@@ -75,6 +81,9 @@ selected owner, and children[].name names each child instance. These names may d
 No targeting a newly created ID in this turn. New subassembly creation is the only operation, optionally
 preceded by initialize_assembly. Initialize must be followed by additions. Existing E2 limits apply.
 Creating missing source parts requires a separate accepted new-part turn. No fallback or repair loop.
+Explain missing sources using human part names and ask the user to create separate parts with New part.
+Do not ask users for internal IDs; naming features in a fused part does not create independent sources.
+If no joints are explicitly requested, use placement-only instances and do not ask for confirmation again.
 """)
 
 

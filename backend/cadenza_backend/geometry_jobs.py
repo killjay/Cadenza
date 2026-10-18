@@ -353,7 +353,11 @@ async def build_design(ledgers: dict[str, Ledger], primary_id: str) -> BuildOutc
             result[key] = base64.b64decode(result[key], validate=True) if result[key] is not None else None
         if result.get("code") is not None:
             result["code"] = ErrorCode(result["code"])
-        event("geometry.outcome", ok=result.get("ok"), code=result.get("code"), primary_id=primary_id)
+        if result.get("interference") is not None:
+            from cadenza_contracts.errors import Interference
+            result["interference"] = Interference.model_validate(result["interference"]).model_dump(mode="json")
+        event("geometry.outcome", ok=result.get("ok"), code=result.get("code"), primary_id=primary_id,
+            interference=result.get("interference"))
         return BuildOutcome(**result)
     except GeometryJobError as exc:
         event("geometry.outcome", ok=False, code=exc.code, primary_id=primary_id)

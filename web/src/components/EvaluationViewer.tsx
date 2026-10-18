@@ -14,6 +14,7 @@ export default function EvaluationViewer({ runs }: { runs: string[] }) {
   const [manual, setManual] = useState<Selection | null>(null);
   const [view, setView] = useState<ModelPhase | "auto">("auto");
   const [modelStatus, setModelStatus] = useState("No geometry yet");
+  const [colourLegend, setColourLegend] = useState("");
   const [now, setNow] = useState(Date.now());
   const selection = activeSelection(runs, states, manual);
   const run = selection.run;
@@ -60,6 +61,7 @@ export default function EvaluationViewer({ runs }: { runs: string[] }) {
     if (!file) {
       for (const child of vp.modelRoot.children.slice()) disposeSubtree(child);
       setModelStatus("No geometry published for this phase");
+      setColourLegend("");
     } else {
       setModelStatus("Loading selected geometry; previous model may still be visible...");
       const timeout = setTimeout(() => controller.abort(), 15000);
@@ -74,6 +76,7 @@ export default function EvaluationViewer({ runs }: { runs: string[] }) {
           swapModel(vp, model, fittedTarget.current !== targetKey);
           fittedTarget.current = targetKey;
           setModelStatus(`${phase}: ${model.triangleCount.toLocaleString()} triangles`);
+          setColourLegend(model.colorMode === "instances" ? "Colours distinguish attributed instances; neutral faces have no instance attribution. Colour does not indicate validity." : "Neutral shading shows part geometry. Colour does not indicate validity.");
         } catch (error) {
           if (!obsolete) setModelStatus(`${error instanceof Error ? error.message : "Model load failed"}. Previous model, if visible, is stale.`);
         } finally { clearTimeout(timeout); }
@@ -87,6 +90,7 @@ export default function EvaluationViewer({ runs }: { runs: string[] }) {
       <span>Read-only observation | {run}</span></header>
     <section className="evaluation-body">
       <aside>
+        {colourLegend && <p aria-label="Model colour legend">{colourLegend}</p>}
         {runs.length > 1 && <p role="status">{batchStatus(runs, states)}</p>}
         <label>Run<select aria-label="Run" value={run} onChange={e => { setManual({ run: e.target.value }); setView("auto"); }}>
           {runs.map(id => <option key={id} value={id}>{id} - {states[id]?.error ? "observation error" : states[id]?.manifest?.status ?? "waiting"}</option>)}

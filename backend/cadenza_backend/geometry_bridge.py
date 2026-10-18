@@ -69,6 +69,7 @@ class BuildOutcome:
     code: ErrorCode | None = None
     feature_id: str | None = None
     empty: bool = False
+    interference: dict[str, Any] | None = None
 
 
 def sha256(data: bytes) -> str:
@@ -104,6 +105,7 @@ def build(ledger: Ledger, all_ledgers: dict[str, Any] | None = None) -> BuildOut
             stub=False,
             code=code,
             feature_id=exc.feature_id,
+            interference=exc.interference,
         )
     except Exception as exc:  # noqa: BLE001 - a kernel crash is not a server crash
         return BuildOutcome(

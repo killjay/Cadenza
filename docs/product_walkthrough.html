@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A practical guide to CADenza: architecture, agents, tools, modeling workflows and user testing.">
+<title>CADenza — From intention to geometry</title>
+<style>
+:root{--ink:#172d32;--muted:#52686c;--paper:#f6f5ef;--card:#fff;--line:#d9e1dd;--teal:#006b61;--soft:#e5f1eb;--orange:#a3471b;--warm:#fff0df;--nav:#122e33}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:30px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.7 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--teal);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #c66a2f;outline-offset:4px}.skip{position:absolute;top:-80px;left:20px;background:white;padding:10px;z-index:10}.skip:focus{top:10px}
+.layout{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.sidebar{background:var(--nav);color:#e4eeea;padding:36px 25px;position:sticky;top:0;height:100vh;overflow:auto}.brand{font-size:24px;font-weight:800;letter-spacing:-1px;color:white}.brand span{color:#83d5bb}.edition{font-size:12px;text-transform:uppercase;letter-spacing:1.6px;color:#b9d2cc;margin:10px 0 34px}.sidebar nav a{display:block;color:#dbe8e3;text-decoration:none;padding:9px 0;font-size:14px;border-bottom:1px solid #ffffff15}.sidebar nav a:hover{color:#94e8c8}.side-note{font-size:12px;color:#b9d2cc;margin-top:32px;line-height:1.7}.print{margin-top:22px;border:1px solid #779d95;background:transparent;border-radius:8px;color:white;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}
+main{max-width:1180px;width:100%;padding:64px 64px 30px;margin:0 auto}.eyebrow{color:var(--teal);font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(38px,4.8vw,66px);line-height:1.08;letter-spacing:-2.5px;max-width:790px;margin:18px 0 24px}.hero h1 em{font-style:normal;color:var(--teal)}.lead{font-size:20px;line-height:1.6;max-width:800px;color:var(--muted)}.tags{display:flex;flex-wrap:wrap;gap:8px;margin:25px 0}.tag{font-size:12px;font-weight:700;padding:5px 10px;border:1px solid var(--line);border-radius:30px;background:#fff}.banner{border-left:4px solid var(--teal);background:var(--soft);padding:18px 22px;border-radius:0 10px 10px 0;margin:26px 0}.banner p{margin:0}.banner.warning{background:var(--warm);border-color:var(--orange)}
+section{margin-top:64px;scroll-margin-top:28px}.section-top{display:flex;gap:13px;align-items:center}.number{font-size:13px;font-weight:800;background:var(--soft);color:var(--teal);border-radius:8px;padding:5px 9px}h2{font-size:30px;letter-spacing:-.8px;line-height:1.2;margin:0}h3{font-size:20px;line-height:1.4;margin:0 0 12px}p{margin:14px 0}.subtext{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:23px 0}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}.card p{font-size:14px;color:var(--muted);margin:8px 0 0}.card strong{display:block;font-size:17px}.card .label{color:var(--teal);font-size:11px;text-transform:uppercase;letter-spacing:1.3px;font-weight:800;margin-bottom:9px}.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:white;margin:24px 0}table{border-collapse:collapse;width:100%;font-size:14px;text-align:left}th{background:#edf2ee;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#395b55}th,td{padding:15px 17px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border:0}td:first-child{font-weight:650}code{font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}td p{margin:0}.flow{padding:25px;background:var(--nav);color:white;border-radius:18px;margin:26px 0}.flow .entry{text-align:center;font-weight:700}.flow .grid{margin:12px 0;gap:10px}.flow .branch{border:1px solid #749e91;background:#20434a;border-radius:10px;padding:15px;text-align:center;font-size:14px}.flow small{display:block;color:#c2d9d2;font-size:12px;margin-top:5px}.arrow{text-align:center;color:#91d8bb;font-size:23px;line-height:1.3;margin:9px 0}.flow .stage{border-radius:10px;background:#eff7f2;color:#153b32;padding:14px;text-align:center;font-weight:650}.flow .tail{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:14px}.flow .accept{background:#83d5b5;color:#123e32;border-radius:10px;padding:14px;text-align:center}.flow .cancel{border:1px solid #8bab9f;border-radius:10px;padding:14px;text-align:center;font-size:14px}.route{font:13px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;background:#eff3ef;padding:13px 17px;border-radius:8px;overflow-wrap:anywhere}
+.scenario{background:white;border:1px solid var(--line);border-radius:16px;padding:28px;margin:24px 0}.scenario .step{color:var(--teal);font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:800}.scenario h3{font-size:25px;margin-top:7px}.prompt{margin:20px 0;background:#f1f5f1;border:1px solid #d6e4db;border-radius:10px;padding:18px 21px}.prompt:before{content:"EXAMPLE PROMPT";display:block;font:700 10px/1.4 system-ui;letter-spacing:1.5px;color:var(--teal);margin-bottom:10px}.prompt p{margin:0}.check{border-top:1px solid var(--line);padding-top:16px;margin-top:18px}.check strong{color:var(--teal)}.tree{white-space:pre-wrap;font:14px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--nav);color:#e7f3ec;border-radius:12px;padding:22px;margin:18px 0}.checklist{padding:0;list-style:none;margin:22px 0}.checklist li{padding:13px 0;border-bottom:1px solid var(--line)}.checklist label{display:flex;gap:13px;align-items:flex-start;cursor:pointer}.checklist input{margin-top:7px;accent-color:var(--teal);width:16px;height:16px;flex-shrink:0}.link-row{display:flex;flex-wrap:wrap;gap:12px;margin:22px 0}.button{display:inline-block;background:var(--teal);color:white;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:650}.button.secondary{background:white;color:var(--teal);border:1px solid var(--line)}footer{margin-top:60px;padding:25px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+@media(max-width:1150px){main{padding:42px 30px}.layout{grid-template-columns:215px minmax(0,1fr)}.sidebar{padding:30px 20px}}
+@media(max-width:800px){.layout{display:block}.sidebar{height:auto;position:static;padding:20px}.brand{font-size:22px}.edition{margin:4px 0 14px}.sidebar nav{display:flex;flex-wrap:wrap;gap:5px 16px}.sidebar nav a{padding:4px 0;font-size:12px}.side-note,.print{display:none}main{padding:32px 20px}.hero h1{letter-spacing:-1.5px}.lead{font-size:18px}.grid,.two{grid-template-columns:1fr}.flow .grid{grid-template-columns:1fr}.scenario{padding:21px}.flow{padding:18px}.flow .tail{grid-template-columns:1fr}section{margin-top:44px}h2{font-size:26px}th,td{padding:12px}table{min-width:550px}}
+@media print{@page{size:A4;margin:15mm}.layout{display:block}.sidebar,.skip,.link-row .button:first-child{display:none}main{max-width:none;padding:0}body{background:white;font-size:10pt}.hero h1{font-size:32pt}.lead{font-size:13pt}section{margin-top:25px}h2{font-size:20pt}h3{font-size:15pt}.card,.scenario,.flow,.banner,figure,tr{break-inside:avoid}.scenario{padding:17px}.table-wrap{overflow:visible}table{font-size:9pt;min-width:0}th,td{padding:9px}.grid,.two{grid-template-columns:repeat(2,minmax(0,1fr))}.flow .grid{grid-template-columns:repeat(3,minmax(0,1fr))}a{color:inherit}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}footer{margin-top:25px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to walkthrough</a>
+<div class="layout">
+<aside class="sidebar" aria-label="Guide navigation">
+  <div class="brand">CAD<span>enza</span></div>
+  <div class="edition">Product field guide · 01</div>
+  <nav aria-label="Contents">
+    <a href="#review-start">Start the review</a>
+    <a href="#foundation">01 · Design vocabulary</a>
+    <a href="#flow">02 · From input to geometry</a>
+    <a href="#agents">03 · Agent legend</a>
+    <a href="#tools">04 · Tools &amp; connections</a>
+    <a href="#scenarios">05 · Example scenarios</a>
+    <a href="#boundaries">06 · Current boundaries</a>
+    <a href="#testing">07 · Your testing checklist</a>
+  </nav>
+  <p class="side-note">A walkthrough of the current implementation.<br>Reviewed 18 October 2026.<br><br>Example prompts are suggested tests, not evidence that those exact prompts have passed live AI evaluation.</p>
+  <button class="print" type="button" onclick="window.print()">Print / save as PDF</button>
+</aside>
+<main id="main">
+<header class="hero">
+  <div class="eyebrow">Understand the system before you test it</div>
+  <h1>From intention<br>to <em>geometry.</em></h1>
+  <p class="lead">How CADenza turns a request into an editable part, combines sources into assemblies, and keeps you in control of the result.</p>
+  <div class="tags"><span class="tag">Single parts</span><span class="tag">Multiple sources</span><span class="tag">Shared assemblies</span><span class="tag">Agents &amp; tools</span><span class="tag">User acceptance</span></div>
+  <div class="banner"><p><strong>The central rule:</strong> AI proposes. The CAD engine builds and checks. You review and Apply. Numeric controls use the same modeling foundation without an AI call.</p></div>
+</header>
+
+
+<section id="review-start" aria-labelledby="review-title">
+  <div class="section-top"><span class="number">Alpha</span><h2 id="review-title">Initial product review</h2></div>
+  <p>This guide describes the frozen review checkpoint through planar face attachments (3B). <strong>Make independent is planned and is not part of this checkpoint.</strong> Test the same commit throughout a review; development can continue separately.</p>
+  <div class="grid two"><div class="card"><strong>Ready to exercise</strong><p>Single parts, separate sources, assembly placement, numeric and targeted prompt edits, source face picking, faded context, supported face attachments, Preview/Apply/Cancel, history and Save/Open.</p></div><div class="card"><strong>Still under evaluation</strong><p>AI interpretation, image accuracy, cold-start performance and user comfort. Selected-edge fillet/chamfer and shell workflows have known gaps. General motion, closed-loop mates and arbitrary complex machines are not supported guarantees.</p></div></div>
+  <p>Recorded checks: 373 broader Python regressions, 46 overlapping focused cases, 109 frontend tests, production build and five grouped native browser checks passed. This is scoped evidence, not a promise that every prompt or CAD operation works.</p>
+  <h3>Run your own interactive copy</h3>
+  <p>Use a separate checkout for human testing. Keep it at the review commit while implementation continues in the development folder. Both backend and frontend are required. In Windows PowerShell, from the repository root:</p>
+  <pre class="tree">git rev-parse HEAD
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./shared -e ./geometry -e ./backend
+Copy-Item .env.example .env
+# Edit .env locally; never send API keys with feedback.
+cd web
+npm ci
+cd ..
+.\.venv\Scripts\python.exe -m uvicorn cadenza_backend.app:app --port 8000</pre>
+  <p>In a second terminal, enter <code>web</code> and run <code>npm run dev</code>. Open the URL Vite prints, normally <code>http://localhost:5173</code>. Use Node 22.12+ or compatible 24.x. The combined Python environment must contain all three packages.</p>
+  <p>Check <code>http://localhost:8000/health</code> reports real build123d geometry, then actually create a small numeric box: health alone does not prove the native worker can start. Missing AI configuration blocks prompts, but numeric controls can still be tested. Restart the backend after changing provider settings. Save before restarting.</p>
+  <div class="banner warning"><p>Ordinary UI prompts incur provider usage; the evaluator's spending controls do not cap them. If an operation times out, retain diagnostics and accepted-state screenshots instead of treating the timeout as a successful build. A completely fresh dependency installation on another machine still needs its own smoke check.</p></div>
+</section>
+
+<section id="foundation" aria-labelledby="foundation-title">
+  <div class="section-top"><span class="number">01</span><h2 id="foundation-title">What your project contains</h2></div>
+  <p>The model tree, Properties and Assistant have separate roles. Assistant history scrolls independently. Click the active part View control again to return to the whole assembly; selecting another part switches directly. Surrounding assembly geometry is faded and is not a face-picking target.</p>
+  <p>A model is more than the shape on screen. CADenza keeps an editable description of how the design is constructed, then generates geometry from that description.</p>
+  <div class="grid">
+    <div class="card"><div class="label">Operation</div><strong>Feature</strong><p>A block, hole, extrusion or pattern inside a part. A feature has its own parameters and identity.</p></div>
+    <div class="card"><div class="label">Definition</div><strong>Source part</strong><p>The reusable design of a part: for example, one standoff with a central bore.</p></div>
+    <div class="card"><div class="label">Occurrence</div><strong>Instance</strong><p>A positioned copy of a source: Left standoff and Right standoff can share the same definition.</p></div>
+  </div>
+  <div class="table-wrap"><table><caption class="skip">Project vocabulary</caption><thead><tr><th>Term</th><th>What it means</th><th>Why it matters when testing</th></tr></thead><tbody>
+    <tr><td>Subassembly</td><td>A reusable group of instances and attachments.</td><td>Changing its shared definition changes every occurrence of that group.</td></tr>
+    <tr><td>Project</td><td>The primary design, its sources and assemblies, and its history.</td><td>Source view and Project view can show different geometry.</td></tr>
+    <tr><td>Ledger</td><td>The structured JSON record of features, dimensions, references and placements.</td><td>This is the editable design record, rather than just a mesh.</td></tr>
+    <tr><td>Revision</td><td>A version number identifying accepted design state.</td><td>Prevents applying a proposal to an outdated design.</td></tr>
+    <tr><td>STEP / GLB</td><td>Generated geometry: STEP for exact CAD inspection/export; GLB for browser display.</td><td>A visually plausible display is not enough; inspect dimensions and exports too.</td></tr>
+  </tbody></table></div>
+  <div class="banner warning"><p><strong>A source is not an instance.</strong> Creating three source parts does not automatically assemble them. A fresh project can have sources in Parts workspace while Project view remains empty.</p></div>
+</section>
+
+<section id="flow" aria-labelledby="flow-title">
+  <div class="section-top"><span class="number">02</span><h2 id="flow-title">Three entry routes, one acceptance boundary</h2></div>
+  <p>The action you choose determines the route. The normal Composer can use the general agent workflow. Explicit creation and editing controls use narrower interpreters. Direct numeric controls skip AI entirely.</p>
+  <div class="flow" role="img" aria-label="Browser input branches into general agents, targeted AI or numeric commands. All changes pass validation, native building, checks and preview. Apply commits the design; Cancel retains the accepted design.">
+    <div class="entry">Your prompt, selection or numeric input</div><div class="arrow" aria-hidden="true">↓</div>
+    <div class="grid">
+      <div class="branch"><strong>General prompt</strong><small>Agent workflow → proposed changes</small></div>
+      <div class="branch"><strong>Targeted AI</strong><small>Scoped interpreter → typed commands</small></div>
+      <div class="branch"><strong>Numeric controls</strong><small>Direct commands · no AI</small></div>
+    </div><div class="arrow" aria-hidden="true">↓</div>
+    <div class="stage">Validate targets, references and proposed design</div><div class="arrow" aria-hidden="true">↓</div>
+    <div class="stage">Native CAD worker → geometry and supported edit checks</div><div class="arrow" aria-hidden="true">↓</div>
+    <div class="stage">Preview the candidate</div>
+    <div class="tail"><div class="accept"><strong>Apply</strong><br>Accepted revision → history → display &amp; export<br>Explicit Save → SQLite</div><div class="cancel"><strong>Cancel</strong><br>Keep the accepted design and restore its view</div></div>
+  </div>
+  <div class="grid two">
+    <div class="card"><div class="label">Browser</div><strong>Controls and visual feedback</strong><p>React manages the UI; Three.js displays the model. A separate browser CAD worker supports STEP inspection and picking.</p></div>
+    <div class="card"><div class="label">Backend</div><strong>Design authority and native geometry</strong><p>Python manages sessions, AI requests, validation and acceptance. Reused build123d/OCCT worker processes generate the CAD geometry. Explicit project saves use SQLite.</p></div>
+  </div>
+  <p><strong>Apply is not Save.</strong> Apply accepts an edit in the running session. Save persists the project. Unsaved sessions do not survive a backend restart. Open rebuilds saved geometry at a fresh accepted revision.</p>
+</section>
+
+<section id="agents" aria-labelledby="agents-title">
+  <div class="section-top"><span class="number">03</span><h2 id="agents-title">The agent legend</h2></div>
+  <p>These are specialized roles, not a group that runs in full for every request. They share a model-client layer; an agent name does not imply a separate permanently running model.</p>
+  <div class="table-wrap"><table><thead><tr><th>Role</th><th>Responsibility</th><th>Connected tools / services</th></tr></thead><tbody>
+    <tr><td>Coordinator</td><td>Routes selected-geometry edits toward Machinist; otherwise uses Architect.</td><td>Deterministic routing code. No model call for this routing decision.</td></tr>
+    <tr><td>Architect</td><td>Interprets general creation, editing or assembly intent; prepares a parts list for assembly work.</td><td>Model client and current design context.</td></tr>
+    <tr><td>Engineer</td><td>Adds known nominal engineering defaults as context.</td><td>Local lookup tables. Currently not an AI call.</td></tr>
+    <tr><td>Draftsman</td><td>Proposes part features through the general prompt route.</td><td>Hardware lookup + math tool.</td></tr>
+    <tr><td>Machinist</td><td>Proposes changes to existing geometry through the general route.</td><td>Hardware lookup + math tool + geometry probe.</td></tr>
+    <tr><td>Librarian</td><td>Interprets requests for standard catalog parts.</td><td>Model client, followed by local catalog queries.</td></tr>
+    <tr><td>Assembler</td><td>Proposes instances and rigid attachments using available parts.</td><td>Model client and accepted source/catalog context.</td></tr>
+    <tr><td>Feature editor interpreter</td><td>Handles explicit source additions and pinned-feature edits. Also runs in restricted New Part mode.</td><td>Typed command capabilities; no registered agent tools.</td></tr>
+    <tr><td>Assembly editor interpreter</td><td>Handles an explicitly selected assembly, instance or attachment target.</td><td>Typed assembly commands; no registered agent tools.</td></tr>
+    <tr><td>Sketch editor interpreter</td><td>Interprets supported requests against a sketch draft.</td><td>Restricted sketch actions; no registered agent tools.</td></tr>
+  </tbody></table></div>
+  <p>The targeted part, source and assembly routes permit at most one interpretation request per submission. The general workflow can involve several agent calls and bounded repair attempts. Provider/model choices come from configuration.</p>
+  <p class="route">General creation: Architect → Draftsman → build/check → preview<br>General selected edit: selection resolution → Machinist → build/check → preview<br>General assembly: Architect → Librarian branch → Assembler → build/check → preview</p>
+  <p class="subtext">The Librarian branch can skip a model call when no standard parts need sourcing. The targeted UI routes bypass this general sequence.</p>
+</section>
+
+<section id="tools" aria-labelledby="tools-title">
+  <div class="section-top"><span class="number">04</span><h2 id="tools-title">Which tool connects to what?</h2></div>
+  <p>There are three registered model-callable tools. Building, saving and accepting changes are application services with their own rules; they are not freely available tools for every agent.</p>
+  <div class="table-wrap"><table><thead><tr><th>Tool</th><th>Caller</th><th>Purpose</th></tr></thead><tbody>
+    <tr><td><code>lookup_hardware_dimensions</code></td><td>Draftsman, Machinist</td><td>Reads local nominal hardware dimensions, such as clearance-hole information.</td></tr>
+    <tr><td><code>math_sandbox</code></td><td>Draftsman, Machinist</td><td>Predefined bolt-circle, grid, coordinate and gear-layout calculations. It does not execute arbitrary generated Python.</td></tr>
+    <tr><td><code>geometry_probe</code></td><td>Machinist</td><td>Requests bounds, distances, clearance, collision, face properties and supported surface-reference operations from the CAD system.</td></tr>
+  </tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>Application service</th><th>Connected workflow</th><th>Responsibility</th></tr></thead><tbody>
+    <tr><td>Local catalog</td><td>Librarian</td><td>Find available standard-part records.</td></tr>
+    <tr><td>Command compiler</td><td>Targeted AI and direct controls</td><td>Translate supported semantic commands into validated design changes.</td></tr>
+    <tr><td>Native geometry workers</td><td>Build and inspection services</td><td>Construct solids, perform booleans, solve supported attachments, inspect and export.</td></tr>
+    <tr><td>Preview / acceptance</td><td>Supported editing routes</td><td>Keep a proposal separate until Apply; reject stale or invalid acceptance.</td></tr>
+    <tr><td>Project repository</td><td>Save / Open</td><td>Store editable project documents and history in SQLite.</td></tr>
+    <tr><td>Diagnostics</td><td>Request, model, build, preview and save boundaries</td><td>Retain linked evidence for investigating failures, subject to capture and retention limits.</td></tr>
+  </tbody></table></div>
+</section>
+
+<section id="scenarios" aria-labelledby="scenarios-title">
+  <div class="section-top"><span class="number">05</span><h2 id="scenarios-title">Walk through a design</h2></div>
+  <p>Use these scenarios in order. All dimensions below are millimetres. Suggested prompts exercise the current routes; exact AI output must still be reviewed.</p>
+
+  <article class="scenario">
+    <div class="step">Scenario 1 · Single source</div><h3>Create a mounting plate</h3>
+    <p>Open <strong>Parts workspace → New Part</strong>. Name it <strong>Mounting plate</strong>, choose <strong>Create with AI</strong>, then submit:</p>
+    <blockquote class="prompt"><p>Create one rectangular plate, 80 mm long along X, 50 mm wide along Y, and 8 mm thick. Centre it in X and Y, with its bottom at Z=0. Add one centred diameter-10 mm through hole opening from the top at Z=8. Use zero rotation.</p></blockquote>
+    <p class="route">New Part interpreter → supported creation commands → native build → preview → your decision</p>
+    <p>The interpreter receives an empty creation context. The server assigns identities, validates the proposal and builds the geometry. This route initially supports box, cylinder and hole operations; dependent features can be added after Apply.</p>
+    <div class="check"><strong>Check:</strong> plate dimensions, hole diameter and through-hole behavior. Cancel should leave no accepted new part. Apply should create the source. Choose <strong>View Mounting plate</strong> afterward; Project view may still be empty.</div>
+    <p class="subtext">Typing a creation request into the ordinary Composer without a special target instead uses Architect → Draftsman.</p>
+  </article>
+
+  <article class="scenario">
+    <div class="step">Scenario 2 · Controlled edits</div><h3>Change a dimension, then add a feature</h3>
+    <p>Scroll over a numeric field and confirm the value does not change accidentally. Use the visible preview/Apply controls rather than relying on Enter. First change Stock length from <strong>80 to 100</strong> using its numeric control. Preview and Cancel. Repeat and Apply. This uses no AI call.</p>
+    <p>Next select the existing hole feature and choose <strong>Edit with AI</strong>:</p>
+    <blockquote class="prompt"><p>Change only this hole’s diameter from 10 mm to 12 mm. Keep it centred and through the plate. Preserve every other feature and dimension.</p></blockquote>
+    <p>To add a feature, choose <strong>Add with AI</strong> on the source:</p>
+    <blockquote class="prompt"><p>Add a second diameter-6 mm through hole at source-local X=25, Y=0, opening at Z=8. Preserve the existing hole and stock dimensions.</p></blockquote>
+    <p class="route">Pinned source / feature → Feature editor interpreter → typed commands → preview</p>
+    <div class="check"><strong>Check:</strong> an edit modifies the selected feature; an addition creates a new feature. The original hole remains centred. Other dimensions and features stay unchanged. Try Undo and Redo after Apply.</div>
+    <p class="subtext">A face selection followed by a general prompt uses selection resolution and Machinist instead. The chosen UI target is part of your test input.</p>
+  </article>
+
+  <article class="scenario">
+    <div class="step">Scenario 3 · Multiple sources</div><h3>Build the parts before assembling them</h3>
+    <p>In a fresh project, create and accept these three sources separately through New Part. Use source-local centring, base Z=0 and zero rotation; bores open from each part’s top.</p>
+    <div class="table-wrap"><table><thead><tr><th>Source</th><th>Definition</th></tr></thead><tbody>
+      <tr><td>Base plate</td><td>160 × 100 × 10 box.</td></tr>
+      <tr><td>Standoff</td><td>20 × 20 × 30 box with a centred Ø8 through bore.</td></tr>
+      <tr><td>Cap</td><td>40 × 30 × 8 box with a centred Ø8 through bore.</td></tr>
+    </tbody></table></div>
+    <div class="check"><strong>Check:</strong> all three sources appear in Parts workspace. Each source view shows the correct part. Creating one source preserves the earlier sources. You have definitions at this point, not a placed assembly.</div>
+  </article>
+
+  <article class="scenario">
+    <div class="step">Scenario 4 · Assembly and reuse</div><h3>Place two occurrences of one source</h3>
+    <p>Continue from Scenario 3, with an eligible empty primary design. Return to <strong>Project view</strong> and use the assembly controls or <strong>Add to assembly with AI</strong>.</p>
+    <blockquote class="prompt"><p>Create a rigidly positioned assembly from the existing sources. Add Base plate as “Base” at (0,0,0). Add Standoff as “Left standoff” at (-50,0,10), and another instance of the same source as “Right standoff” at (50,0,10). Use zero rotation for every instance. Do not add attachment joints yet.</p></blockquote>
+    <p class="route">Assembly editor interpreter → existing source references + placements → whole-design build and interference checks → preview</p>
+    <p>This request uses Base plate and Standoff. Cap remains an available, unused source. Explicit placements do not create attachment joints.</p>
+    <div class="tree" aria-label="Assembly structure">Project assembly
+├─ Base             → Base plate source
+├─ Left standoff    → Standoff source
+└─ Right standoff   → the same Standoff source</div>
+    <div class="table-wrap"><table><thead><tr><th>Your action</th><th>Expected result</th></tr></thead><tbody>
+      <tr><td>Move Right standoff X=50 → 55</td><td>Only that occurrence moves.</td></tr>
+      <tr><td>Change Standoff source width 20 → 24</td><td>Both occurrences become wider.</td></tr>
+      <tr><td>Edit a reused subassembly definition</td><td>Every occurrence of that group changes.</td></tr>
+    </tbody></table></div>
+    <div class="check"><strong>Check:</strong> distinct instance names and positions, one shared Standoff definition, and the correct scope of each edit. Making only one occurrence geometrically different requires independent-source functionality that this targeted editor does not currently provide.</div>
+  </article>
+
+  <article class="scenario">
+    <div class="step">Scenario 5 · Protection and recovery</div><h3>Use the prepared locating fixture</h3>
+    <p>Use your own saved test assembly. If your reviewer package includes Layout A - Review copy, it provides five sources and a repeated module; this named fixture is not automatically installed by cloning the repository.</p>
+    <div class="grid two">
+      <div class="card"><strong>Attached Cap</strong><p>Attempt to move it without authorizing detachment. Expect refusal, not silent removal of its attachment.</p></div>
+      <div class="card"><strong>Overlapping modules</strong><p>Place Right module directly over Left module. Expect interference rejection and an unchanged accepted design.</p></div>
+    </div>
+    <p>Then make a valid edit, Apply, Save, open another project and reopen the saved one. Names, features, placements and history should survive. Geometry is rebuilt at a fresh revision.</p>
+    <div class="check"><strong>Check:</strong> rejected operations do not mutate accepted state. Preview is not acceptance, and acceptance is not persistence. Save before a backend restart.</div>
+  </article>
+
+  <article class="scenario">
+    <div class="step">Additional test · Drawing input</div><h3>Ask the application to acknowledge uncertainty</h3>
+    <p>Attach a dimensioned drawing while creating a part or editing an explicitly selected target. The image follows that route to an image-capable provider. It is interpretation evidence, not an exact measurement source.</p>
+    <div class="check"><strong>Check:</strong> intentionally omit one critical dimension. An appropriate clarification question is a correct result. Confidently inventing that dimension is a failure.</div>
+  </article>
+</section>
+
+
+  <article class="scenario">
+    <div class="step">New review case: connected editing</div><h3>Make selected faces stay together</h3>
+    <p>Use a fresh assembly with a 100 × 60 × 15 box base, two instances of a Ø20 × 30 cylinder spacer at (-30,0,15) and (30,0,15), and a 100 × 60 × 8 cap at (0,0,45). Sources are centred in X/Y with their bottoms at Z=0; all rotations are zero. Create and place these sources before attaching them.</p>
+    <ol><li>Select the assembly, then Properties → Rigid attachments → Attach faces.</li><li>Choose Base as fixed and LeftSpacer as following. Pick the base top near (-30,0,15), then the spacer bottom centre. Use selected face at each step, Preview, inspect, Apply.</li><li>Repeat for RightSpacer at X=30. Attach Cap to LeftSpacer's top using the matching cap bottom point near X=-30. One driving attachment per child is supported.</li><li>Change base thickness from 15 to 12. Both spacers and the cap should move down by 3 mm, retaining their X/Y positions. Check declared contact evidence; Cancel once, then repeat and Apply.</li><li>Exercise Undo/Redo, Save/Open, and an invalid shrink that moves an anchor outside its face. A rejected edit must leave accepted geometry unchanged.</li></ol>
+    <div class="check"><strong>Scope:</strong> declared contacts are checked, not every possible fit or clearance. Existing coordinate joints do not automatically convert. Face attachments are authored manually in this release; targeted AI source edits still rebuild and verify them.</div>
+  </article>
+
+<section id="boundaries" aria-labelledby="boundaries-title">
+  <div class="section-top"><span class="number">06</span><h2 id="boundaries-title">What to expect today</h2></div>
+  <div class="banner warning"><p><strong>Understanding an assembly request is not the same as generating every missing part.</strong> Architect can produce a parts list, but Assembler is instructed to request missing custom sources. A complete custom machine from one prompt remains a capability to develop and evaluate further.</p></div>
+  <div class="grid two">
+    <div class="card"><strong>Targeted changes are deliberately bounded</strong><p>New Part creates one source. A source-only AI request adds features; modifying an existing feature requires selecting it. Assembly editing does not mix source geometry changes with instance changes.</p></div>
+    <div class="card"><strong>Supported attachments are rigid</strong><p>Explicit box-face and cylinder-end-face attachments now track source edits and verify finite contact. Old coordinate attachments retain their original behavior. Motion joints, arbitrary-face mates and closed loops remain unsupported. A request for unsupported behavior should explain the limit or ask a question.</p></div>
+    <div class="card"><strong>Nominal hardware is not certification</strong><p>Engineering defaults and catalog geometry are prototype capabilities. A tool result does not establish manufacturing or standards compliance.</p></div>
+    <div class="card"><strong>Geometry success still needs review</strong><p>Building a valid solid does not prove that every sentence or image detail was interpreted correctly. Check intent, dimensions and editing scope independently.</p></div>
+  </div>
+</section>
+
+<section id="testing" aria-labelledby="testing-title">
+  <div class="section-top"><span class="number">07</span><h2 id="testing-title">Test with a clear expectation</h2></div>
+  <p>Follow this order: <strong>single-source controls → targeted additions/edits → multiple sources → assembly placement → shared-source changes → rejection and recovery.</strong> It makes a failure easier to locate.</p>
+  <ul class="checklist">
+    <li><label><input type="checkbox"><span><strong>Interpretation:</strong> did the request produce the right operation and target, or an appropriate clarification?</span></label></li>
+    <li><label><input type="checkbox"><span><strong>Geometry:</strong> are dimensions, holes, positions and solid counts correct?</span></label></li>
+    <li><label><input type="checkbox"><span><strong>Control:</strong> does Cancel preserve accepted state? Do Apply, Undo and Redo behave as expected?</span></label></li>
+    <li><label><input type="checkbox"><span><strong>Scope:</strong> did an instance move affect one occurrence, and a source edit affect every reused occurrence?</span></label></li>
+    <li><label><input type="checkbox"><span><strong>Persistence:</strong> does a saved project reopen correctly, including after a backend restart?</span></label></li>
+    <li><label><input type="checkbox"><span><strong>Evidence:</strong> retain the exact prompt/image, selected target, expected versus actual behavior, failure stage, screenshot and Diagnostics download.</span></label></li>
+  </ul>
+  <p class="subtext">These checkboxes are a reading aid only; their state is not saved. Use the linked review worksheet or retain your own notes.</p>
+  <p>Diagnostics link requests with relevant model, build and decision evidence, subject to configured capture and retention limits. They do not automatically record a complete visual movie; screenshots remain useful.</p>
+  <div class="banner"><p><strong>Capture each result:</strong> record the commit from <code>git rev-parse HEAD</code>, browser/OS, selected source or occurrence, exact prompt or numeric action, expected result, actual result and before/preview/after screenshots. Mark Pass, Fail or Unclear. Check Apply, Cancel and reopening separately.</p></div>
+  <p>Use the bottom status bar: <strong>Diagnostics → choose the relevant session → Download diagnostics</strong>. Include the ZIP and a saved test project when appropriate. Review diagnostics before sharing: they may contain design and prompt content. Never include your .env or API key. Report AI interpretation failures separately from geometry, UI, persistence or startup failures.</p>
+  <p class="subtext">This standalone guide needs no external fonts or libraries. Print / save as PDF is available in the sidebar. It does not launch a test server and contains no link to a supposedly running evaluator.</p>
+</section>
+<footer>
+  <strong>CADenza · Current-implementation walkthrough</strong><br>
+  Reviewed 18 October 2026. Review checkpoint through Increment 3B. Agent/tool mapping follows the implementation; example prompts still require human verification. The shareable copy is docs/product_walkthrough.html; developer knowledge remains local. This document changes no application behavior.
+</footer>
+</main></div>
+</body></html>

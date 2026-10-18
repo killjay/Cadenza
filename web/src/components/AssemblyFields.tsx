@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import type { AbsoluteAssemblyPlacement } from "../lib/types";
 
 export const inputClass = "w-full rounded border border-hairline bg-chrome p-1";
@@ -6,8 +7,8 @@ export const zero: AbsoluteAssemblyPlacement = { origin: [0, 0, 0], rotation_deg
 
 export function VectorFields({ name, label, value }: { name: string; label: string; value: number[] }) {
   return <fieldset><legend>{label}</legend><div className="grid grid-cols-3 gap-1">
-    {["X", "Y", "Z"].map((axis, i) => <label key={axis}>{axis}<input aria-label={`${name} ${axis}`}
-      name={`${name}_${i}`} className={inputClass} type="number" required step="any" defaultValue={value[i]} /></label>)}
+    {["X", "Y", "Z"].map((axis, i) => <label key={axis}>{axis}<NumericInput aria-label={`${name} ${axis}`}
+      name={`${name}_${i}`} className={inputClass} required step="any" defaultValue={value[i]} /></label>)}
   </div></fieldset>;
 }
 

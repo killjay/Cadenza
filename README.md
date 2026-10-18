@@ -10,11 +10,13 @@ exports GLB (for the viewport) and STEP (for manufacturing). To edit, click a
 face in the 3D view and say what should change.
 
 The load-bearing invariant: **the model never emits code.** Agents only ever
-produce RFC 6902 patches against the ledger, which are schema-validated before
+produce structured proposals or typed commands, compiled into ledger changes, which are schema-validated before
 anything runs. There is no `exec`, no sandbox, and no path where a model writes
 Python that the server executes. See [ARCHITECTURE.md](ARCHITECTURE.md) §1.
 
 ---
+
+Reviewers: open [the product walkthrough](docs/product_walkthrough.html) in a browser. This is an early-alpha checkpoint; use a separate checkout and record its commit.
 
 ## Running it on localhost
 
@@ -23,7 +25,7 @@ Python that the server executes. See [ARCHITECTURE.md](ARCHITECTURE.md) §1.
 | | Version | Notes |
 |---|---|---|
 | Python | **3.11+** (3.12 tested) | macOS system Python is 3.9 — too old. Use `uv`, pyenv or Homebrew. |
-| Node.js | **20+** (24 tested) | |
+| Node.js | **22.12+** (or compatible 24.x) | |
 | [`uv`](https://docs.astral.sh/uv/) | any recent | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 
 An API key for **Anthropic**, **OpenRouter**, or **DeepSeek**. Without one the
@@ -43,16 +45,20 @@ $EDITOR .env          # set ANTHROPIC_API_KEY=sk-ant-…
 
 ### 2. Build the Python environment
 
-> **Read this or nothing will render.** Geometry is an *in-process* call, not a
-> separate service — the process serving WebSockets is the same process that
-> runs build123d, so it needs the backend's dependencies **and** build123d in
-> one interpreter. That combined environment is `geometry/.venv`. This is the
-> single most common way to get a working server that produces no geometry.
+Use one root `.venv` containing shared contracts, geometry and backend. Native CAD
+runs in child workers using the backend's interpreter, so that interpreter must
+contain build123d. From the repository root:
 
 ```bash
-uv venv --python 3.12 geometry/.venv
-uv pip install --python geometry/.venv/bin/python -e ./shared -e ./geometry -e ./backend
-uv pip install --python geometry/.venv/bin/python "pytest>=8" "pytest-asyncio>=0.24"
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e ./shared -e ./geometry -e ./backend
+```
+
+Windows PowerShell equivalent (no activation required):
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./shared -e ./geometry -e ./backend
 ```
 
 That installs the three local packages as editable (`cadenza-contracts`,
@@ -62,7 +68,7 @@ websockets and build123d in behind them.
 ### 3. Install the web dependencies
 
 ```bash
-cd web && npm install && cd ..
+cd web && npm ci && cd ..
 ```
 
 `occt-wasm` ships a ~22 MB `.wasm` payload, so the first install is not fast.
@@ -72,7 +78,7 @@ cd web && npm install && cd ..
 **Shell 1 — API server (port 8000):**
 
 ```bash
-geometry/.venv/bin/python -m uvicorn cadenza_backend.app:app --reload --port 8000
+.venv/bin/python -m uvicorn cadenza_backend.app:app --reload --port 8000
 ```
 
 **Shell 2 — web dev server (port 5173):**
@@ -98,8 +104,7 @@ curl -s localhost:8000/health
 
 If you get the second one, you are running the server from an environment
 without build123d (most likely `backend/.venv`). The degradation is deliberate —
-a venv without OCCT can still run the transport, the agents and the whole test
-suite — but the viewport will stay empty and the transcript will say it *"built
+a venv without OCCT can still run the transport, the agents and some transport tests — but the viewport will stay empty and the transcript will say it *"built
 this without a geometry kernel."*
 
 ### Try it
@@ -111,9 +116,9 @@ Draftsman. Dimensioned engineering drawings work far better than photographs;
 see [ARCHITECTURE.md](ARCHITECTURE.md) §7 for why a photo of a real object is
 declined rather than approximated.
 
-The feature vocabulary today is `box`, `cylinder`, `hole` and `gear`. Anything
-outside it is refused out loud rather than approximated — that is a deliberate
-design choice, not a bug.
+Capabilities differ by workflow. New Part supports box, cylinder and hole creation;
+existing source controls also expose supported patterns and profile-based features.
+See the walkthrough for current boundaries, including known selected-edge and shell gaps.
 
 ---
 
@@ -123,9 +128,9 @@ No test makes a real model call — the provider is faked throughout, so the sui
 is free and runs offline.
 
 ```bash
-cd backend  && ../geometry/.venv/bin/python -m pytest -q
-cd shared   && ../geometry/.venv/bin/python -m pytest -q
-cd geometry && .venv/bin/python -m pytest -q
+cd backend  && ../.venv/bin/python -m pytest -q
+cd shared   && ../.venv/bin/python -m pytest -q
+cd geometry && ../.venv/bin/python -m pytest -q
 cd web      && npm run typecheck && npm run build
 ```
 
@@ -163,7 +168,7 @@ frames carry GLB and STEP bytes.
 ## Troubleshooting
 
 **Viewport stays empty, transcript says "built this without a geometry kernel"**
-Wrong interpreter — see step 5. Run from `geometry/.venv`.
+Wrong interpreter — see step 5. Run from the root `.venv`.
 
 **`ModuleNotFoundError: cadenza_contracts`**
 The editable installs didn't take. Re-run the `uv pip install -e` line from

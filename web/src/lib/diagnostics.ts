@@ -4,7 +4,7 @@ const trail: Entry[] = [];
 let omitted = 0;
 let trailBytes = 0;
 const fields = ["type", "message_id", "session_id", "revision", "base_revision", "ledger_id", "feature_id",
-  "preview_id", "action", "code", "phase", "owner_path", "target", "level", "state", "error_type"];
+  "preview_id", "action", "code", "phase", "owner_path", "component_path", "face_mode", "target", "level", "state", "error_type"];
 
 export function recordDiagnostic(event: string, value: unknown = {}): void {
   try {
@@ -14,6 +14,12 @@ export function recordDiagnostic(event: string, value: unknown = {}): void {
       if (!(key in raw)) continue;
       const text = JSON.stringify(raw[key]);
       if (text && text.length <= 500) data[key] = JSON.parse(text);
+    }
+    const face = raw.face as Record<string, unknown> | undefined;
+    if (face && typeof face === "object") {
+      if (face.mode === "edit_feature" || face.mode === "add_on_face") data.face_mode = face.mode;
+      if (Array.isArray(face.component_path) && face.component_path.length <= 8
+        && face.component_path.every(id => typeof id === "string" && /^comp_[a-z0-9_]{1,60}$/.test(id))) data.component_path = [...face.component_path];
     }
     const entry = { timestamp: new Date().toISOString(), event: event.slice(0, 80), data };
     trail.push(entry);

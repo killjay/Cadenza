@@ -16,6 +16,16 @@ export function validAssemblyPrompt(ledgers: Record<string, Ledger>, root: strin
 
 export interface AssemblyRow { path: string; labels: string[]; component: Component; source?: Ledger; ownerId: string; ownerPath: string[]; }
 
+/** Membership is counted from the displayed root, including repeated nested sources. */
+export function partUsage(ledgers: Record<string, Ledger>, root: string) {
+  const rows = assemblyRows(ledgers, root);
+  const uses = new Map<string, number>();
+  for (const row of rows) if (row.source) uses.set(row.source.project_id, (uses.get(row.source.project_id) ?? 0) + 1);
+  const unplaced = Object.values(ledgers).filter(source => source.project_id !== root
+    && !source.assembly && source.features.length > 0 && !uses.has(source.project_id));
+  return { rows, uses, unplaced };
+}
+
 export function assemblyOwner(ledgers: Record<string, Ledger>, root: string, path: string[]): string | null {
   if (path.length > 8) return null;
   let owner = root;

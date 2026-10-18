@@ -2,6 +2,37 @@ import type { CapabilitiesResponse, CommandOperation, Feature, FeatureCapability
 
 export const sourceNotice = "Source edits update all reused instances together.";
 
+export function numericInputError(text: string, min?: number | string, max?: number | string, step: number | string = "any"): string {
+  if (text === "") return ""; // Required fields use native valueMissing validation.
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text.trim()) || !Number.isFinite(Number(text)))
+    return "Enter a finite decimal number.";
+  const value = Number(text);
+  if (min !== undefined && value < Number(min)) return `Enter a value of at least ${min}.`;
+  if (max !== undefined && value > Number(max)) return `Enter a value no greater than ${max}.`;
+  if (step !== "any") {
+    const steps = (value - Number(min ?? 0)) / Number(step);
+    if (Math.abs(steps - Math.round(steps)) > 1e-7) return `Use increments of ${step}.`;
+  }
+  return "";
+}
+
+export type FeatureEditField = { key: string; label: string; value: number | null; derived: boolean;
+  operation: { op: "set_dimension"; parameter: Extract<CommandOperation, { op: "set_dimension" }>["parameter"] }
+    | { op: "set_origin"; axis: "x" | "y" | "z" } };
+
+export function featureEditCommands(featureId: string, fields: FeatureEditField[], draft: Record<string, string>): CommandOperation[] {
+  return fields.filter(field => !field.derived && field.key in draft).flatMap(field => {
+    const text = draft[field.key], error = numericInputError(text);
+    if (error) throw new Error(`${field.label}: ${error}`);
+    const value = readNumber(text, field.operation.op === "set_origin");
+    return value === field.value ? [] : [{ ...field.operation, feature_id: featureId, value }];
+  });
+}
+
+export function requestNumericDraftDiscard(target: EventTarget, preservePrompt = false): boolean {
+  return target.dispatchEvent(new CustomEvent("cadenza:discard-numeric-edits", { cancelable: true, detail: { preservePrompt } }));
+}
+
 export function simpleFeature(feature: Feature): boolean {
   switch (feature.kind) {
     case "box": case "cylinder": return !feature.parameters.through && feature.parameters.draft_angle === 0;

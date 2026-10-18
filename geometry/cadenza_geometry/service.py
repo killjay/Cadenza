@@ -50,6 +50,7 @@ class _Built:
     ambiguity: dict[int, list[str]]
     build_ms: float
     instances: dict[str, AssemblyLeaf]
+    contacts: list[dict]
 
 
 def _fingerprint(ledger: Any) -> str:
@@ -83,10 +84,11 @@ class Build123dGeometryService:
         t0 = time.perf_counter()
         plan = resolve(ledger, all_ledgers=all_ledgers)                 # invariant gates, no kernel yet
         
+        contacts: list[dict] = []
         instances: dict[str, AssemblyLeaf] = {}
         if isinstance(plan, AssemblyPlan):
             leaves: list[AssemblyLeaf] = []
-            solid = build_assembly(plan, leaves=leaves)
+            solid = build_assembly(plan, leaves=leaves, contacts=contacts)
             faces = []
             attribution: dict[int, tuple[str | None, RFeature, Spec]] = {}
             ambiguity: dict[int, list[str]] = {}
@@ -112,7 +114,7 @@ class Build123dGeometryService:
             attribution=attribution,
             ambiguity=ambiguity,
             build_ms=(time.perf_counter() - t0) * 1000.0,
-            instances=instances,
+            instances=instances, contacts=contacts,
         )
 
         self._cache[key] = built
@@ -178,7 +180,7 @@ class Build123dGeometryService:
         """Executes a geometric probe query (bounding box, collision, etc.)"""
         from cadenza_geometry.probe import run_probe_query
         from cadenza_contracts.surface_reference import SurfaceReference
-        from cadenza_geometry.surface_references import capture_surface_reference, resolve_surface_reference
+        from cadenza_geometry.surface_references import capture_surface_reference, resolve_surface_reference, validate_face_additions
         if query.get("query_type") == "resolve_surface_reference":
             raw = query.get("reference")
             if query.get("reference_id") is not None:
@@ -196,7 +198,28 @@ class Build123dGeometryService:
                 return {"status": "missing", "reference": reference.model_dump(mode="json"),
                         "message": "Referenced geometry is empty or suppressed."}
             return resolve_surface_reference(self._compile(ledger, all_ledgers=all_ledgers), reference)
+        if query.get("query_type") == "instance_context":
+            from pydantic import TypeAdapter
+            from cadenza_contracts.part_commands import OccurrencePath
+            path = TypeAdapter(OccurrencePath).validate_python(query.get("component_path"))
+            built = self._compile(ledger, all_ledgers=all_ledgers)
+            leaf = built.instances.get("/".join(path))
+            if leaf is None or leaf.part_id is not None or leaf.plan.project_id != query.get("source_ledger_id"):
+                raise GeometryError(GeometryErrorCode.INVALID_PARAMETER, "Occurrence does not reference the requested source part.")
+            origin = to_world(leaf.location, (0, 0, 0))
+            axes = [dir_to_world(leaf.location, axis) for axis in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
+            matrix = [value for row in range(3) for value in (*[axis[row] for axis in axes], origin[row])]
+            return {"component_path": path, "source_ledger_id": leaf.plan.project_id,
+                    "source_to_project": [*matrix, 0.0, 0.0, 0.0, 1.0]}
         built = self._compile(ledger, all_ledgers=all_ledgers)
+        if query.get("query_type") == "capture_planar_attachment":
+            from cadenza_contracts.assembly_commands import AddPlanarAttachment
+            from cadenza_geometry.planar_attachments import capture_pair
+            return capture_pair(built, AddPlanarAttachment.model_validate(query["operation"]))
+        if query.get("query_type") == "attachment_contacts":
+            return {"contacts": built.contacts, "interference_checked": True}
+        if query.get("query_type") == "validate_face_additions":
+            return validate_face_additions(built, SurfaceReference.model_validate(query["reference"]), query["operations"])
         if query.get("query_type") == "capture_surface_reference":
             return capture_surface_reference(built, query.get("point", []), query.get("normal"))
         return run_probe_query(built, query)

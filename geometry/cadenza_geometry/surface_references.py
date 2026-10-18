@@ -1,9 +1,11 @@
 """Capture exact primitive roles and resolve only unique surviving faces."""
 import math
 from typing import Any
+from build123d import GeomType, Location
 
 from cadenza_contracts.surface_reference import SurfaceReference
 from cadenza_geometry.spatial import _closest_point, _normal_at
+from cadenza_geometry.frames import dir_to_world
 
 
 def _source(built: Any, component_path: tuple[str, ...]):
@@ -14,6 +16,12 @@ def _source(built: Any, component_path: tuple[str, ...]):
 
 
 def resolve_surface_reference(built: Any, reference: SurfaceReference) -> dict:
+    result = resolve_native_surface(built, reference)
+    result.pop("native_face", None)
+    return result
+
+
+def resolve_native_surface(built: Any, reference: SurfaceReference) -> dict:
     unresolved = {"reference": reference.model_dump(mode="json")}
     if built.plan.project_id != reference.ledger_id:
         return {**unresolved, "status": "missing", "message": "Reference belongs to another ledger."}
@@ -61,8 +69,32 @@ def resolve_surface_reference(built: Any, reference: SurfaceReference) -> dict:
     center = face.center()
     _, point = _closest_point(face, (center.X, center.Y, center.Z))
     return {**unresolved, "status": "resolved", "candidate_count": 1,
+            "native_face": face,
             "face": {"center": [center.X, center.Y, center.Z], "point": list(point),
-                     "normal": list(_normal_at(face, point)), "area_mm2": face.area}}
+                     "normal": list(_normal_at(face, point)), "area_mm2": face.area,
+                     "planar": face.geom_type == GeomType.PLANE}}
+
+
+def validate_face_additions(built: Any, reference: SurfaceReference, operations: list[dict]) -> dict:
+    """Check origins on the trimmed selected face and local construction direction."""
+    resolved = resolve_surface_reference(built, reference)
+    if resolved["status"] != "resolved" or not resolved["face"]["planar"]:
+        return {"status": "unsupported", "message": "Choose a single planar face for this addition."}
+    normal = resolved["face"]["normal"]
+    for op in operations:
+        if op.get("op") != "add_feature" or op.get("kind") not in ("box", "cylinder", "hole"):
+            return {"status": "unsupported", "message": "Face additions support boxes, cylinders and holes. Use feature controls for other operations."}
+        placement = op["placement"]
+        captured = capture_surface_reference(built, placement["origin"], normal)
+        if captured.get("reference") != reference.model_dump(mode="json"):
+            return {"status": "missing", "message": "The proposed origin is not on the selected face. Specify its position on that face."}
+        axis = dir_to_world(Location((0, 0, 0), tuple(placement["rotation_deg"])), (0, 0, 1))
+        # Holes cut along -Z; additive primitives grow along +Z. Subtractive
+        # boxes/cylinders must instead point their +Z into the selected solid.
+        sign = -1 if op["operation"] == "subtract" and op["kind"] != "hole" else 1
+        if sum(a * b for a, b in zip(axis, normal)) * sign < 1 - 1e-7:
+            return {"status": "unsupported", "message": "The proposed direction does not match the selected face. Specify an outward addition or inward cut."}
+    return {"status": "resolved"}
 
 
 def capture_surface_reference(built: Any, point: list[float], normal: list[float] | None = None) -> dict:

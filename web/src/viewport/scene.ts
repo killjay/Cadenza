@@ -9,12 +9,14 @@
  * way out, which `test_glb_geometry_lands_in_the_right_place_after_the_y_up_swap`
  * pins. So the GLB arrives rotated and something has to undo it.
  *
- * That something is `modelRoot`, and only `modelRoot`: it carries the single
+ * That something is `modelRoot` for the active model: it carries the single
  * root rotation CONTRACTS.md promises ("glTF is Y-up; the frontend converts at
  * the Three.js boundary and nowhere else"). Everything else in the scene —
  * camera, grid, overlays, the STEP-derived pick mesh and wireframe — lives in
  * ledger coordinates, so world space IS model space and a click's world
- * coordinate goes on the wire as-is.
+ * coordinate goes on the wire as-is. Source inspection keeps this frame local;
+ * a separate faded context root converts its own GLB once, then applies the
+ * inverse source-to-project transform. Source picks cannot enter primary prompts.
  *
  * The rotation belongs on the root and not in the GLB writer because the writer
  * also feeds `Open GLB…` and any external viewer, where a Z-up glTF would be
@@ -41,7 +43,7 @@ export interface Viewport {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   /**
-   * Everything model-shaped hangs off here so a swap is one subtree — and so
+   * The active model hangs off here so a swap is one subtree — and so
    * the glTF Y-up -> ledger Z-up rotation is one node's transform.
    */
   modelRoot: THREE.Group;
@@ -50,6 +52,8 @@ export interface Viewport {
   raycaster: THREE.Raycaster;
   /** Frame the camera on a bounding box. Only called explicitly. */
   frame: (box: THREE.Box3, animate?: boolean) => void;
+  /** Change coordinate frame without changing the projected view. Cancels a pending Fit. */
+  transformCamera: (matrix: THREE.Matrix4) => void;
   /** Move the ground plane and grid to sit under the part. */
   setGroundLevel: (z: number) => void;
   setGridVisible: (on: boolean) => void;
@@ -179,15 +183,19 @@ export function createViewport(container: HTMLElement): Viewport {
   const overlayRoot = new THREE.Group();
   scene.add(overlayRoot);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.09;
-  controls.rotateSpeed = 0.7;
-  controls.zoomSpeed = 0.9;
-  controls.panSpeed = 0.8;
-  controls.screenSpacePanning = true;
-  controls.minDistance = 5;
-  controls.maxDistance = 2500;
+  function makeControls() {
+    const result = new OrbitControls(camera, renderer.domElement);
+    result.enableDamping = true;
+    result.dampingFactor = 0.09;
+    result.rotateSpeed = 0.7;
+    result.zoomSpeed = 0.9;
+    result.panSpeed = 0.8;
+    result.screenSpacePanning = true;
+    result.minDistance = 5;
+    result.maxDistance = 2500;
+    return result;
+  }
+  let controls = makeControls();
   controls.target.set(0, 0, 10);
   controls.update();
 
@@ -206,7 +214,22 @@ export function createViewport(container: HTMLElement): Viewport {
 
   /* ---------------- camera framing ---------------- */
 
+  let frameGeneration = 0;
+  function transformCamera(matrix: THREE.Matrix4): void {
+    frameGeneration++;
+    const target = controls.target.clone().applyMatrix4(matrix), enabled = controls.enabled;
+    controls.dispose();
+    camera.position.applyMatrix4(matrix);
+    camera.up.transformDirection(matrix);
+    // OrbitControls caches its up-axis quaternion on construction.
+    controls = makeControls();
+    controls.target.copy(target);
+    controls.enabled = enabled;
+    controls.update();
+  }
+
   function frame(box: THREE.Box3, animate = true): void {
+    const generation = ++frameGeneration;
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
@@ -239,6 +262,7 @@ export function createViewport(container: HTMLElement): Viewport {
     const dur = 420;
     const ease = (x: number): number => 1 - Math.pow(1 - x, 3);
     const step = (): void => {
+      if (!running || generation !== frameGeneration) return;
       const t = Math.min((performance.now() - t0) / dur, 1);
       const e = ease(t);
       camera.position.lerpVectors(fromPos, toPos, e);
@@ -282,11 +306,12 @@ export function createViewport(container: HTMLElement): Viewport {
     renderer,
     scene,
     camera,
-    controls,
+    get controls() { return controls; },
     modelRoot,
     overlayRoot,
     raycaster,
     frame,
+    transformCamera,
     setGroundLevel,
     setGridVisible: (on) => {
       grid.visible = on;

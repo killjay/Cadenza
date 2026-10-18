@@ -71,4 +71,20 @@ def validate_references(document: dict[str, Any], all_documents: dict[str, Any] 
         for joint in joints:
             if joint.get("component_a") not in component_ids or joint.get("component_b") not in component_ids:
                 raise ValueError(f"Joint {joint['id']} references a missing component")
+            if any(joint.get(side, {}).get("mode") == "planar_face" for side in ("target_a", "target_b")):
+                from cadenza_contracts.ledger import Joint, PlanarTarget
+                typed = Joint.model_validate(joint)
+                for side in ("a", "b"):
+                    target = getattr(typed, f"target_{side}")
+                    assert isinstance(target, PlanarTarget)
+                    component = next(c for c in components if c["id"] == getattr(typed, f"component_{side}"))
+                    source_id = component.get("sub_assembly_id")
+                    if source_id != target.reference.source_ledger_id:
+                        raise ValueError(f"Attachment {typed.id} references a different source")
+                    if source_id in documents:
+                        source = documents[source_id]
+                        source = source.model_dump(mode="json") if hasattr(source, "model_dump") else source
+                        if source.get("assembly") is not None:
+                            raise ValueError("Planar attachment endpoints must be source parts")
+
     acyclic(graph)

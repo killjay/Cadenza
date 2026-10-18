@@ -191,7 +191,7 @@ def compile_source_command(ledger, request: DesignCommand) -> list[PatchOp]:
 
 
 async def handle_design_command(session: Any, request: DesignCommand, emit: Callable, *,
-                                prompt="", assumptions=None, verification_scope=None) -> None:
+                                prompt="", assumptions=None, verification_scope=None, context_path=None) -> None:
     if request.base_revision != session.revision:
         raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed. Refresh before editing.")
     if request.ledger_id not in session.stores:
@@ -202,10 +202,10 @@ async def handle_design_command(session: Any, request: DesignCommand, emit: Call
     
     outcome = await build_design(ledgers, session.primary_ledger_id)
     if not outcome.ok:
-        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail)
+        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail, interference=outcome.interference)
         
     ops_summary = f"Preview of {len(request.operations)} source feature operation(s). Reused instances update together on Apply."
     await publish_preview(session, ledgers, outcome, request.message_id, emit,
-                          summary=ops_summary,
+                          summary=ops_summary, context_path=context_path,
                           prompt=prompt, assumptions=assumptions, verification_scope=verification_scope, display_ledger_id=request.ledger_id,
                           patch=[p.model_dump(mode="json", by_alias=True) for p in patches])

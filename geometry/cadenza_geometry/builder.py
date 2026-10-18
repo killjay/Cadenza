@@ -47,7 +47,7 @@ from build123d import (
 )
 from cadenza_geometry.contracts import GeometryError, GeometryErrorCode
 from cadenza_geometry.frames import feature_location, pattern_locations
-from cadenza_geometry.joints import solve_rigid_joints
+from cadenza_geometry.joints import solve_rigid_joints, ordered_joints
 from cadenza_geometry.gear import Arc, Line, Spline, gear_profile
 from cadenza_geometry.plan import BuildPlan, RFeature, AssemblyPlan, RPart, RComponent, RJoint
 
@@ -425,10 +425,11 @@ class AssemblyLeaf:
     location: Location
 
 
-def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = None) -> Compound:
+def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = None, contacts: list[dict] | None = None) -> Compound:
     """AssemblyPlan -> a Compound containing all placed components, or raise GeometryError."""
-    locations = solve_rigid_joints({comp.id: Location(comp.origin, comp.rotation_deg)
-                                    for comp in plan.components}, plan.joints)
+    from cadenza_geometry.planar_attachments import source_geometry, face_frame, on_face, verify_contact
+    initial = {comp.id: Location(comp.origin, comp.rotation_deg) for comp in plan.components}
+    ordered_joints(initial, plan.joints)
     parts: dict[str, Shape] = {}
     part_plans: dict[str, BuildPlan] = {}
     for rpart in plan.parts:
@@ -450,16 +451,16 @@ def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = No
     components: dict[str, Shape] = {}
     solids_list: list[Shape] = []
 
-    # Place components
+    children = {}
+    # Build children before resolving attachment faces.
     for comp in plan.components:
         child_leaves: list[AssemblyLeaf] = []
         if comp.sub_assembly:
-            base_solid = build_assembly(comp.sub_assembly, leaves=child_leaves if leaves is not None else None)
+            base_solid = build_assembly(comp.sub_assembly, leaves=child_leaves, contacts=contacts)
         elif comp.part_id in parts:
             base_solid = parts[comp.part_id]
-            if leaves is not None:
-                child_leaves.append(AssemblyLeaf((), part_plans[comp.part_id],
-                    None if comp.id == "sub_comp" else comp.part_id, base_solid, Location()))
+            child_leaves.append(AssemblyLeaf((), part_plans[comp.part_id],
+                None if comp.id == "sub_comp" else comp.part_id, base_solid, Location()))
         else:
             raise GeometryError(
                 GeometryErrorCode.INVALID_PARAMETER,
@@ -467,8 +468,44 @@ def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = No
                 comp.id
             )
         
-        # Clone the solid so we can independently position it
-        
+        children[comp.id] = (base_solid, child_leaves)
+
+    resolved = {}
+    for joint in plan.joints:
+        if joint.planar_a is None:
+            continue
+        assert joint.planar_b is not None  # Paired target modes are validated during resolution.
+        pair = []
+        names = {c.id: c.name for c in plan.components}
+        label = f"Attachment from {names[joint.component_a]} to {names[joint.component_b]} in {plan.name}"
+        for cid, target in ((joint.component_a, joint.planar_a), (joint.component_b, joint.planar_b)):
+            child_leaves = children[cid][1]
+            if len(child_leaves) != 1 or child_leaves[0].path or child_leaves[0].part_id is not None:
+                raise GeometryError(GeometryErrorCode.INVALID_PARAMETER, "Planar attachments require direct source parts", joint.id)
+            leaf = child_leaves[0]
+            try:
+                face, frame = face_frame(source_geometry(leaf.plan, leaf.solid), target)
+                on_face(face, frame)
+                pair.append((leaf.location * face, leaf.location * frame))
+            except GeometryError as exc:
+                raise GeometryError(exc.code, f"{label}: {exc.message}", joint.id) from exc
+        resolved[joint.id] = pair
+    locations = solve_rigid_joints(initial, plan.joints,
+        {jid: (pair[0][1], pair[1][1]) for jid, pair in resolved.items()})
+    for joint in plan.joints:
+        if joint.id not in resolved:
+            continue
+        (face_a, frame_a), (face_b, frame_b) = resolved[joint.id]
+        a, b = locations[joint.component_a], locations[joint.component_b]
+        try:
+            evidence = verify_contact(a * face_a, a * frame_a, b * face_b, b * frame_b, joint.id)
+        except GeometryError as exc:
+            names = {c.id: c.name for c in plan.components}
+            raise GeometryError(exc.code, f"Attachment from {names[joint.component_a]} to {names[joint.component_b]} in {plan.name}: {exc.message}", joint.id) from exc
+        if contacts is not None:
+            contacts.append(dict(definition_id=plan.project_id, **evidence))
+    for comp in plan.components:
+        base_solid, child_leaves = children[comp.id]
         # Apply component placement
         # The placement rotation is in degrees (intrinsic XYZ).
         loc = locations[comp.id]
@@ -509,7 +546,9 @@ def build_assembly(plan: AssemblyPlan, *, leaves: list[AssemblyLeaf] | None = No
                         GeometryErrorCode.KERNEL_FAILURE,
                         f"Interference detected: Component {id_a!r} collides with {id_b!r}",
                         id_a,
-                        detail=f"Intersection volume: {vol:.2f} mm^3"
+                        detail=f"Intersection volume: {vol:.2f} mm^3",
+                        interference=dict(definition_id=plan.project_id, component_a=[id_a],
+                            component_b=[id_b], volume_mm3=float(vol)),
                     )
             except Exception as e:
                 if isinstance(e, GeometryError):

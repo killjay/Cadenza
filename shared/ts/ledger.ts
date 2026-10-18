@@ -327,14 +327,18 @@ export interface Component {
 // Targets are assembly coordinates after initial placement, before joint solving.
 // Runtime supports rigid A-anchors-B forests: both opposing normals, or neither
 // for translation only; initial placement determines twist. Unsupported motion,
-// closed loops and feature-bound anchors are rejected by geometry.
+// closed loops and feature-bound coordinate anchors are rejected by geometry.
+// Planar targets re-resolve selected primitive faces with recorded UV and twist.
+export interface PlanarTarget { mode: "planar_face"; reference: SurfaceReference; uv: [number, number]; }
+
 export interface Joint {
   id: string;
   kind: "rigid" | "revolute" | "cylindrical" | "slider" | "ball";
   component_a: string;
   component_b: string;
-  target_a: TargetRef;
-  target_b: TargetRef;
+  target_a: TargetRef | PlanarTarget;
+  target_b: TargetRef | PlanarTarget;
+  twist_deg?: number;
 }
 
 export interface Assembly {

@@ -22,6 +22,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from cadenza_contracts.ledger import Joint, PlanarTarget
 from cadenza_geometry.contracts import GeometryError, GeometryErrorCode
 from cadenza_geometry.gear import (
     DEFAULT_PRESSURE_ANGLE,
@@ -232,6 +233,9 @@ class RJoint:
     target_b_pt: tuple[float, float, float]
     target_a_norm: tuple[float, float, float] | None = None
     target_b_norm: tuple[float, float, float] | None = None
+    planar_a: PlanarTarget | None = None
+    planar_b: PlanarTarget | None = None
+    twist_deg: float | None = None
 
 @dataclass
 class AssemblyPlan:
@@ -398,6 +402,18 @@ def _resolve_assembly(doc: dict[str, Any], assembly_doc: dict[str, Any], meta: d
         ta = rj.get("target_a", {})
         tb = rj.get("target_b", {})
         fid = rj.get("id", "")
+        modes = (ta.get("mode", "coordinate"), tb.get("mode", "coordinate"))
+        if modes != ("coordinate", "coordinate"):
+            try:
+                typed = Joint.model_validate(rj)
+                if not isinstance(typed.target_a, PlanarTarget) or not isinstance(typed.target_b, PlanarTarget):
+                    raise ValueError("Unknown attachment mode")
+                joints.append(RJoint(id=fid, kind=typed.kind, component_a=typed.component_a,
+                    component_b=typed.component_b, target_a_pt=(0, 0, 0), target_b_pt=(0, 0, 0),
+                    planar_a=typed.target_a, planar_b=typed.target_b, twist_deg=typed.twist_deg))
+            except ValueError as exc:
+                raise GeometryError(GeometryErrorCode.INVALID_PARAMETER, str(exc), fid) from exc
+            continue
         if ta.get("reference_feature") or tb.get("reference_feature"):
             raise GeometryError(GeometryErrorCode.UNSUPPORTED_FEATURE,
                 "Feature-bound joint anchors are not implemented; use explicit assembly-space coordinates", fid)

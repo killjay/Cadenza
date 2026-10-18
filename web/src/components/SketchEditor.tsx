@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useState, useEffect, useRef } from "react";
 import { useStore } from "../lib/store";
 import type { ProfileFeature } from "../lib/types";
@@ -67,7 +68,7 @@ export function SketchEditor({ ledgerId, feature }: { ledgerId: string; feature:
       }}>
         <label className="min-w-0 flex-1">{constraint.parameter} (mm)
           {binding && <span className="block break-words text-10 text-ink-3">Driven by {binding.expression}</span>}
-          <input type="number" name="value" required step="any" min={constraint.parameter === "x" || constraint.parameter === "y" ? -1e6 : 0.000001}
+          <NumericInput name="value" required step="any" min={constraint.parameter === "x" || constraint.parameter === "y" ? -1e6 : 0.000001}
             max={1e6} defaultValue={constraint.value} disabled={disabled || derived}
             aria-label={`${feature.name || "Sketch"} ${entity.id} ${constraint.parameter} (mm)`}
             className="mt-0.5 w-full rounded border border-hairline bg-canvas p-1" />

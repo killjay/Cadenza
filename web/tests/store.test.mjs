@@ -20,7 +20,7 @@ async function setup(occtOverrides = {}, globals = {}) {
   }, { window, ...globals });
   const ready = (revision = 0) => store.getState().onFrame({ type: "session.ready", session_id: "ses_test", revision,
     can_undo: revision > 0, store: { part: { revision, features: [] } }, agents_available: true });
-  return { store, ready, events, prompts, calls, connection: state => handlers.onState(state) };
+  return { store, ready, events, prompts, calls, window, connection: state => handlers.onState(state) };
 }
 
 const emptyDraft = { id: "draft_test", base_revision: 0, revision: 0, ledger_id: "part", profile_id: "feat_draft",
@@ -33,6 +33,47 @@ const commandLedger = { project_id: "part", features: [{ id: "feat_box", kind: "
   parameters: { length: 20, width: 20, height: 10, through: false, draft_angle: 0 },
   placement: { origin: [0, 0, 0], rotation_deg: [0, 0, 0], relative_to: null } }], relationships: { parameters: {}, bindings: [] } };
 const widthCommand = [{ op: "set_dimension", feature_id: "feat_box", parameter: "width", value: 30 }];
+
+test("source face actions pin semantic source context and reject stale generations/revisions", async () => {
+  const s = await promptSetup();
+  const reference = { ledger_id:"part", source_ledger_id:"part", component_path:[], source_part_id:null,
+    feature_id:"feat_box", feature_kind:"box", operation:"add", role:"top_face", version:1 };
+  const selection = { source:{ledgerId:"part",revision:0,generation:4,componentPath:["comp_a"]},
+    surface_reference:reference, mode:"face", point:[0,0,10],normal:[0,0,1],faceHash:42 };
+  s.store.setState({ selectedSourceId:"part", selectedSourcePath:["comp_a"], sourceFaceAvailable:true,
+    geometryGeneration:4, model:{source:"source",revision:0}, selections:[selection] });
+  s.store.getState().startFacePrompt("edit_feature");
+  assert.equal(s.store.getState().featurePromptTarget.face.mode,"edit_feature");
+  assert.equal(s.store.getState().featurePromptTarget.featureId,"feat_box");
+  assert.equal(s.store.getState().submitFeaturePrompt("Set height to 12 mm"),true);
+  const request=s.calls.at(-1);
+  assert.equal(request.type,"design.prompt");assert.equal(request.ledger_id,"part");
+  assert.equal(request.face.reference,reference);assert.equal(request.face.faceHash,undefined);
+  s.store.getState().onFrame({type:"error",message_id:request.message_id,code:"BAD_MESSAGE",message:"Try again"});
+  assert.equal(s.store.getState().featurePromptTarget.face.mode,"edit_feature");
+  s.store.setState({sessionRevision:1});
+  assert.equal(s.store.getState().submitFeaturePrompt("Retry"),false);
+  s.store.setState({sessionRevision:0,featurePromptTarget:null,selections:[{...selection,source:{...selection.source,generation:3}}]});
+  s.store.getState().startFacePrompt("add_on_face");assert.equal(s.store.getState().featurePromptTarget,null);
+  s.store.setState({selections:[selection]});s.store.getState().startFacePrompt("add_on_face");
+  assert.equal(s.store.getState().featurePromptTarget.featureId,undefined);
+  assert.equal(s.store.getState().featurePromptTarget.face.mode,"add_on_face");
+});
+
+test("interference paths are mapped from checked definitions including repeated nested uses", async () => {
+  const s=await promptSetup();
+  s.store.setState({primaryLedgerId:"root",ledgers:{
+    root:{features:[],assembly:{components:[{id:"comp_left",sub_assembly_id:"inner"},{id:"comp_right",sub_assembly_id:"inner"}]}},
+    inner:{project_id:"inner",metadata:{name:"Pair"},features:[],assembly:{components:[{id:"comp_a",name:"Plate"},{id:"comp_b",name:"Spacer"}]}}
+  }});
+  s.store.getState().onFrame({type:"error",message_id:"change",code:"GEOMETRY_KERNEL_FAILURE",message:"Overlap",
+    interference:{definition_id:"inner",component_a:["comp_a"],component_b:["comp_b"],volume_mm3:12.5}});
+  assert.deepEqual(Array.from(s.store.getState().interference.paths),["comp_left/comp_a","comp_left/comp_b","comp_right/comp_a","comp_right/comp_b"]);
+  assert.match(s.store.getState().interference.text,/Plate overlaps Spacer/);
+  assert.match(s.store.getState().interference.text,/12.50/);
+  s.store.getState().onFrame({type:"ledger.updated",revision:1,store:s.store.getState().ledgers});
+  assert.equal(s.store.getState().interference,null);
+});
 
 async function commandSetup() {
   const s = await setup(); s.store.getState().connect(); s.connection("open"); s.ready();
@@ -64,6 +105,126 @@ function viewResponse(s, ledger = "part", overrides = {}) {
     session_id: "ses_test", revision: 0, ledger_id: ledger, view_id: "view", empty: false,
     glb_url: "/source.glb", step_url: null, ...overrides };
 }
+
+async function contextSetup(globals = {}) {
+  const s = await partSetup(globals), state = s.store.getState();
+  s.store.setState({ partCapabilities: { ...state.partCapabilities, source_context: true },
+    ledgers: { ...state.ledgers, root: { ...state.ledgers.root, assembly: { components: [
+      { id: "comp_left", sub_assembly_id: "part" }, { id: "comp_right", sub_assembly_id: "part" }] } } } });
+  return s;
+}
+
+test("source occurrence requests queue and correlate two uses of the same part, including A-B-A", async () => {
+  const s = await contextSetup({ fetch: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(1) }) });
+  const choose = path => s.store.getState().selectSource("part", false, [path]);
+  choose("comp_left");const first = viewResponse(s, "part", { component_path: ["comp_left"] });
+  choose("comp_right");await s.store.getState().loadSourceView(first);
+  assert.deepEqual(s.calls.filter(c => c.type === "design.part.view").at(-1).component_path, ["comp_right"]);
+  assert.equal(s.events.filter(e => e.name === "cadenza:glb").length, 0);
+  const second = viewResponse(s, "part", { component_path: ["comp_right"] });
+  await s.store.getState().loadSourceView(second);
+  assert.deepEqual(s.store.getState().selectedSourcePath, ["comp_right"]);
+  choose("comp_left"); const third = viewResponse(s, "part", { component_path: ["comp_left"] });
+  choose("comp_right");choose("comp_left");await s.store.getState().loadSourceView(third);
+  assert.equal(s.store.getState().sourceLoading, false);assert.deepEqual(s.store.getState().sourceView.component_path, ["comp_left"]);
+  const count = s.calls.length;choose("comp_missing");assert.equal(s.calls.length, count);
+});
+
+test("stale context downloads cannot replace newer occurrence; context failure leaves an explicit standalone view", async () => {
+  const pending = deferred();
+  const s = await contextSetup({ fetch: async url => ({ ok: true, arrayBuffer: () => url === "/context.glb" ? pending.promise : Promise.resolve(new ArrayBuffer(1)) }) });
+  s.store.getState().selectSource("part", false, ["comp_left"]);
+  const frame = viewResponse(s, "part", { component_path: ["comp_left"], context_glb_url: "/context.glb",
+    source_to_project: [1,0,0,20,0,1,0,0,0,0,1,0,0,0,0,1] });
+  const loading = s.store.getState().loadSourceView(frame);
+  s.store.getState().selectSource("part", false, ["comp_right"]);
+  pending.resolve(new ArrayBuffer(1));await loading;
+  assert.equal(s.events.filter(e => e.name === "cadenza:glb").length, 0);
+  assert.deepEqual(s.store.getState().sourceRequest.componentPath, ["comp_right"]);
+  const failed = await contextSetup({ fetch: async url => ({ ok: url !== "/context.glb", arrayBuffer: async () => new ArrayBuffer(1) }) });
+  failed.store.getState().selectSource("part", false, ["comp_left"]);
+  await failed.store.getState().loadSourceView({ ...frame, message_id: failed.store.getState().sourceRequest.id });
+  assert.match(failed.store.getState().sourceContextWarning, /unavailable/);
+  assert.equal(failed.events.filter(e => e.name === "cadenza:glb").at(-1).detail.context, undefined);
+  assert.equal(failed.store.getState().sourceLoading, false);
+});
+
+test("source face inspection requires current loaded STEP identity and never enables primary-coordinate edits", async () => {
+  const s = await contextSetup();
+  s.store.setState({ selectedSourceId: "part", selectedSourcePath: ["comp_left"], geometryGeneration: 5,
+    sourceView: { ledger_id: "part" }, model: { source: "source", pickMs: 1, colorMode: "part" } });
+  const selection = { mode: "face", faceHash: 12, point: [1,2,3], normal: [0,0,1], screen: { x: 0, y: 0 },
+    source: { ledgerId: "part", revision: 0, generation: 5, componentPath: ["comp_left"] } };
+  for (const source of [undefined, { ...selection.source, revision: 1 }, { ...selection.source, generation: 4 },
+    { ...selection.source, ledgerId: "second" }, { ...selection.source, componentPath: ["comp_right"] }]) {
+    s.store.getState().select({ ...selection, source });assert.equal(s.store.getState().selections.length, 0);
+  }
+  s.store.setState({ sourceLoading: true });s.store.getState().select(selection);assert.equal(s.store.getState().selections.length, 0);
+  s.store.setState({ sourceLoading: false });
+  for (const model of [{ source: "source", pickMs: 1 }, { source: "source", colorMode: "part" }]) {
+    s.store.setState({ model });s.store.getState().select(selection);assert.equal(s.store.getState().selections.length, 0);
+  }
+  s.store.setState({ model: { source: "source", pickMs: 1, colorMode: "part" } });s.store.getState().select(selection);
+  assert.equal(s.store.getState().selections.length, 1);assert.equal(s.store.getState().promptOpen, false);
+  assert.equal(s.store.getState().assemblySelection, null);
+  s.store.getState().submitPrompt("Edit this face");s.store.getState().startDraft();assert.equal(s.prompts.length, 0);
+  s.store.getState().select(null);assert.equal(s.store.getState().selections.length, 0);
+  s.store.setState({ selectedSourceId: null });s.store.getState().select(selection);assert.equal(s.store.getState().selections.length, 0);
+});
+
+test("source rename requires explicit capability and stages a correlated revision-bound request", async () => {
+  const s = await partSetup();
+  const before = s.calls.length;
+  s.store.getState().renamePart("part", "BasePlate");
+  assert.equal(s.calls.length, before); // Old servers still permit creation/view, but not rename.
+  s.store.setState({ partCapabilities: { ...s.store.getState().partCapabilities, rename_source: true } });
+  for (const [id, name] of [["missing", "Base"], ["root", "Base"], ["part", " "], ["part", "Plate"]])
+    s.store.getState().renamePart(id, name);
+  assert.equal(s.calls.length, before);
+  s.store.getState().renamePart("part", " BasePlate ");
+  assert.equal(s.calls.length, before + 1);
+  const frame = s.calls.at(-1), state = s.store.getState();
+  assert.equal(frame.type, "design.part.rename");
+  assert.equal(frame.name, "BasePlate");
+  assert.equal(frame.ledger_id, "part");
+  assert.equal(frame.base_revision, state.sessionRevision);
+  assert.equal(frame.message_id, state.partRequest);
+  assert.equal(state.ledgers.part.metadata.name, "Plate");
+  s.store.getState().renamePart("part", "Other");
+  assert.equal(s.calls.length, before + 1);
+  state.onFrame({ type: "error", message_id: frame.message_id, code: "BAD_MESSAGE", message: "Duplicate name" });
+  assert.equal(s.store.getState().busy, false);
+  assert.equal(s.store.getState().partRequest, null);
+  assert.equal(s.store.getState().ledgers.part.metadata.name, "Plate");
+});
+
+test("clearing explicit AI targets respects the unsent-edit guard", async () => {
+  const s = await partSetup();
+  s.store.setState({ newPartName: "New", featurePromptTarget: { ledgerId: "part" },
+    assemblyPromptTarget: { ledgerId: "root", ownerPath: [], target: { kind: "definition" } } });
+  s.window.addEventListener("cadenza:discard-numeric-edits", event => event.preventDefault());
+  s.store.getState().startPartPrompt(null);
+  s.store.getState().startFeaturePrompt(null);
+  s.store.getState().startAssemblyPrompt(null);
+  assert.equal(s.store.getState().newPartName, "New");
+  assert.ok(s.store.getState().featurePromptTarget);
+  assert.ok(s.store.getState().assemblyPromptTarget);
+});
+
+test("unsent numeric edits can block source and AI target changes without sending frames", async () => {
+  const s = await partSetup();
+  const refuse = event => event.preventDefault();
+  s.window.addEventListener("cadenza:discard-numeric-edits", refuse);
+  const before = s.calls.length;
+  s.store.getState().selectSource("part");
+  s.store.getState().startPartPrompt("New part");
+  assert.equal(s.store.getState().selectedSourceId, null);
+  assert.equal(s.store.getState().newPartName, null);
+  assert.equal(s.calls.length, before);
+  s.store.getState().selectSource("part", true); // Accepted-state refresh never asks to keep a stale draft.
+  assert.equal(s.store.getState().selectedSourceId, "part");
+  s.window.removeEventListener("cadenza:discard-numeric-edits", refuse);
+});
 
 test("source views do not change revision and reject primary replay or stale requests", async () => {
   const s = await partSetup({ fetch: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(7) }) });
@@ -123,6 +284,36 @@ test("source preview uses source bytes even when primary is empty", async () => 
   assert.equal(s.store.getState().model.source, "preview");
   s.store.getState().decidePreview("apply");
   assert.equal(s.store.getState().selectedSourceId, "new");
+});
+
+test("candidate context uses candidate artifacts and whole-assembly toggle preserves the proposal", async () => {
+  const urls=[];
+  const s=await partSetup({fetch:async url=>{urls.push(url);return {ok:true,arrayBuffer:async()=>new ArrayBuffer(7)};}});
+  const preview={type:"design.preview",message_id:"edit",preview_id:"candidate",base_revision:0,display_ledger_id:"part",
+    source_glb_url:"/candidate/source.glb",source_step_url:"/candidate/source.step",glb_url:"/candidate/model.glb",step_url:"/candidate/model.step",
+    context_component_path:["comp_a"],source_to_project:[1,0,0,20,0,1,0,0,0,0,1,0,0,0,0,1],empty:false};
+  await s.store.getState().loadPreview(preview);
+  assert.deepEqual(urls,["/candidate/source.glb","/candidate/source.step","/candidate/model.glb"]);
+  const event=s.events.filter(e=>e.name==="cadenza:glb").at(-1);
+  assert.equal(event.detail.context.componentPath,preview.context_component_path);
+  assert.equal(s.store.getState().previewWhole,false);
+  urls.length=0;await s.store.getState().loadPreview(preview,true);
+  assert.deepEqual(urls,["/candidate/model.glb","/candidate/model.step"]);
+  assert.equal(s.events.filter(e=>e.name==="cadenza:glb").at(-1).detail.context,undefined);
+  assert.equal(s.store.getState().preview,preview);assert.equal(s.store.getState().previewWhole,true);
+});
+
+test("candidate context failure blocks Apply and whole-view reload recovers", async () => {
+  let fail=true;
+  const s=await partSetup({fetch:async url=>({ok:!(fail&&url==="/model"),arrayBuffer:async()=>new ArrayBuffer(7)})});
+  const preview={type:"design.preview",message_id:"edit",preview_id:"candidate",base_revision:0,display_ledger_id:"part",
+    source_glb_url:"/source",glb_url:"/model",context_component_path:["comp_a"],source_to_project:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]};
+  await s.store.getState().loadPreview(preview);
+  assert.ok(s.store.getState().previewError);const count=s.calls.length;
+  s.store.getState().decidePreview("apply");assert.equal(s.calls.length,count);
+  fail=false;await s.store.getState().loadPreview(preview,true);assert.equal(s.store.getState().previewError,null);
+  const recoveredCount=s.calls.length;
+  s.store.setState({previewRendering:true});s.store.getState().decidePreview("apply");assert.equal(s.calls.length,recoveredCount);
 });
 
 test("source-view actions cannot reach primary probes, sketch draft or legacy prompts", async () => {
@@ -872,13 +1063,14 @@ test("empty undo clears visual state while retaining its accepted revision", asy
 });
 
 
-async function assemblySetup() {
+async function assemblySetup(version = 2) {
   const s = await partSetup();
+  s.store.setState({ assemblyVersion: version });
   s.store.getState().discoverAssembly();
   const cap = { type: "design.assembly.capabilities", message_id: s.store.getState().assemblyDiscovery,
-    session_id: "ses_test", revision: 0, ledger_id: "root", version: 2, owner_path: [], max_subassemblies: 8, max_initial_children: 16, can_initialize: true, can_edit: false,
+    session_id: "ses_test", revision: 0, ledger_id: "root", version, owner_path: [], max_subassemblies: 8, max_initial_children: 16, can_initialize: true, can_edit: false,
     reason: null, max_operations: 16, max_components: 32, max_leaves: 128, max_depth: 8,
-    operations: ["initialize_assembly", "add_instance", "duplicate_instance", "set_instance_placement", "rename_instance", "remove_instance", "add_rigid_joint", "remove_joint", "create_subassembly"] };
+    operations: ["initialize_assembly", "add_instance", "duplicate_instance", "set_instance_placement", "rename_instance", "remove_instance", "add_rigid_joint", "remove_joint", "create_subassembly", ...(version === 3 ? ["add_planar_attachment"] : [])] };
   return { ...s, cap };
 }
 const assemblyOps = [{ op: "initialize_assembly", name: "Fixture" }, { op: "add_instance", name: "Plate", source_ledger_id: "part",
@@ -1118,4 +1310,60 @@ test("E1 server field rejection identifies v2 discovery without confusing unrela
   assert.equal(s.store.getState().assemblyVersion,1);assert.equal(s.store.getState().busy,true);
   assert.equal(s.store.getState().partCapabilities,part);
   assert.equal(s.calls.at(-1).version,undefined);
+});
+
+
+test("presentation errors retain raw evidence and request identity without changing accepted state", async () => {
+  const { store, ready } = await setup(); ready(3);
+  const accepted = store.getState().ledgers;
+  store.getState().onFrame({ type: "error", code: "LEDGER_INVALID", message: "Invalid proposal", detail: "features.3.radius missing", message_id: "review_error", recoverable: true });
+  const error = store.getState().conversation.at(-1);
+  assert.equal(error.text, "LEDGER_INVALID: Invalid proposal (features.3.radius missing)");
+  assert.equal(error.error.code, "LEDGER_INVALID");
+  assert.equal(error.error.requestId, "review_error");
+  assert.equal(error.error.detail, "features.3.radius missing");
+  store.getState().onFrame({ type: "geometry.failed", code: "GEOMETRY_KERNEL_FAILURE", message: "Kernel rejected cut", message_id: "review_geometry", current_revision: 3, feature_id: "feat_hole", detail: { native: "cut" } });
+  const geometry = store.getState().conversation.at(-1);
+  assert.equal(geometry.error.featureId, "feat_hole");
+  assert.equal(geometry.error.detail.native, "cut");
+  assert.equal(store.getState().sessionRevision, 3);
+  assert.equal(store.getState().ledgers, accepted);
+});
+
+
+test("v3 face controls fall back to v2 without unlocking a mutation", async () => {
+  const s = await assemblySetup(3); s.store.setState({ busy: true });
+  s.store.getState().onFrame({ type: "error", message_id: s.cap.message_id, code: "BAD_MESSAGE", message: "Unsupported v3" });
+  assert.equal(s.store.getState().assemblyVersion, 2);
+  assert.equal(s.store.getState().busy, true);
+  const request = s.calls.at(-1); assert.equal(request.version, 2);
+  s.store.getState().onFrame({ ...s.cap, version: 2, message_id: request.message_id, operations: s.cap.operations.slice(0,-1) });
+  assert.equal(s.store.getState().assemblyCapabilities.version, 2);
+});
+
+test("face picker pins endpoints, rejects stale picks and submits through assembly preview", async () => {
+  const s = await assemblySetup(3);
+  const source = id => ({ ...commandLedger, project_id: id });
+  const components = [{id:"comp_a",sub_assembly_id:"part"},{id:"comp_b",sub_assembly_id:"other"}];
+  s.store.setState({ ledgers: { root: {project_id:"root",features:[],assembly:{components,joints:[]}}, part:source("part"), other:source("other") },
+    model: {source:"server"}, partCapabilities: {...s.store.getState().partCapabilities,source_context:true} });
+  s.store.getState().onFrame({...s.cap,can_initialize:false,can_edit:true});
+  s.store.getState().startFaceAttachment("comp_a","comp_b");
+  assert.equal(s.store.getState().selectedSourceId,"part"); assert.equal(s.store.getState().faceAttachment.step,"a");
+  const pick = (id,path,role,normal) => ({mode:"face",faceHash:1,point:[0,0,0],normal,
+    source:{ledgerId:id,revision:0,generation:s.store.getState().geometryGeneration,componentPath:[path]},
+    surface_reference:{version:1,ledger_id:id,source_ledger_id:id,source_part_id:null,component_path:[],feature_id:"feat_box",feature_kind:"box",operation:"add",role}});
+  s.store.setState({ sourceLoading:false,sourceRequest:null,selections:[pick("part","comp_a","top_face",[0,0,1])] });
+  const saved=s.store.getState().selections;
+  s.store.setState({selections:[{...saved[0],source:{...saved[0].source,generation:-1}}]});
+  s.store.getState().useAttachmentFace(); assert.equal(s.store.getState().faceAttachment.a,undefined);
+  s.store.setState({selections:saved}); s.store.getState().useAttachmentFace();
+  assert.ok(s.store.getState().faceAttachment.a); assert.equal(s.store.getState().selectedSourceId,"other");
+  s.store.setState({sourceLoading:false,sourceRequest:null,selections:[pick("other","comp_b","bottom_face",[0,0,-1])]});
+  s.store.getState().useAttachmentFace(); s.store.getState().previewFaceAttachment();
+  const sent=s.calls.find(c=>c.type==="design.assembly.command");
+  assert.equal(sent.operations[0].op,"add_planar_attachment"); assert.equal(sent.ledger_id,"root");
+  assert.equal(sent.operations[0].target_a.reference.source_ledger_id,"part");
+  assert.equal(sent.operations[0].target_b.reference.source_ledger_id,"other");
+  assert.equal(s.store.getState().busy,true);
 });

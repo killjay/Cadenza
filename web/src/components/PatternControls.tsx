@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useState } from "react";
 import { useStore } from "../lib/store";
 import { patternCommand, patternDirections, patternRadius, patternReason, patternSeed, sourceNotice } from "../lib/featureCommands";
@@ -15,7 +16,7 @@ export function PatternControls({ ledger, feature }: { ledger: Ledger; feature?:
   const disabled = state.busy || !!state.draft || state.draftStarting || !!state.preview
     || state.connection !== "open" || state.model?.source === "local";
   const field = (name: string, label: string, initial?: number, integer = false) => <label className="block">{label}
-    <input name={name} aria-label={label} type="number" required step={integer ? 1 : "any"}
+    <NumericInput name={name} aria-label={label} required step={integer ? 1 : "any"}
       min={integer ? 2 : -1e9} max={integer ? 32 : 1e9} defaultValue={initial ?? ""}
       className="mt-0.5 w-full rounded border border-hairline bg-canvas p-1" />
   </label>;
@@ -69,10 +70,7 @@ export function PatternControls({ ledger, feature }: { ledger: Ledger; feature?:
         {error && <p role="alert" className="text-red">{error}</p>}
       </form>
       {seed && kind === "circular_pattern" && <button disabled={disabled} className="text-accent disabled:opacity-40" onClick={() => {
-        const panel = document.getElementById(`feature-${ledger.project_id}-${seed.id}`);
-        panel?.querySelectorAll("details").forEach(d => { d.open = true; });
-        panel?.scrollIntoView({ behavior: "smooth", block: "center" });
-        panel?.querySelector<HTMLInputElement>(`input[aria-label*="origin x"]`)?.focus();
+        window.dispatchEvent(new CustomEvent("cadenza:inspect-feature", { detail: { ledgerId: ledger.project_id, featureId: seed.id } }));
       }}>Select seed to change radius</button>}
       {feature && <div className="mt-2 flex flex-wrap gap-3">
         <button disabled={disabled} className="text-accent disabled:opacity-40" onClick={() => state.previewFeatureCommand(ledger.project_id,

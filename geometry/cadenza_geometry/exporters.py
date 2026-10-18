@@ -15,6 +15,7 @@ from cadenza_geometry.contracts import GeometryError, GeometryErrorCode
 from cadenza_geometry.glb import MeshGroup, tessellate_face, write_glb
 from cadenza_geometry.plan import AssemblyPlan, BuildPlan, RFeature
 from cadenza_geometry.provenance import Spec
+from cadenza_contracts.surface_reference import SurfaceReference
 
 # Tessellation quality. Linear deflection is in mm and is what actually drives
 # triangle count; 0.05 keeps a Ø10 bore visually round while staying small.
@@ -91,21 +92,25 @@ def export_glb_bytes(
             if (ambiguity or {}).get(i):
                 group.selection_error = "Multiple features contribute to this surface. Select an unambiguous surface or edit from the feature tree."
             profile_id = getattr(spec, "profile_id", None)
-            if feat.kind == "extrude" and profile_id:
+            if feat.kind in ("box", "cylinder", "hole") or (feat.kind == "extrude" and profile_id):
                 key = (fid, spec.label, entity_id or "")
                 profile_faces.setdefault(key, []).append(i)
-                group.surface_reference = {"version": 1, "ledger_id": plan.project_id,
+                raw_reference = {"version": 1, "ledger_id": plan.project_id,
                     "source_ledger_id": (component_sources or {}).get(comp_id, plan.project_id),
                     "source_part_id": comp_to_part.get(comp_id) if comp_id else None,
                     "component_path": comp_id.split("/") if comp_id else [],
-                    "feature_id": feat.id, "feature_kind": "extrude", "operation": "add",
+                    "feature_id": feat.id, "feature_kind": feat.kind, "operation": feat.operation,
                     "profile_id": profile_id, "entity_id": entity_id, "role": spec.label}
+                try:
+                    group.surface_reference = SurfaceReference.model_validate(raw_reference).model_dump(mode="json")
+                except ValueError:
+                    group.selection_error = "This surface does not support a stable face reference. Use feature controls."
         tessellate_face(face, group, linear_deflection, angular_deflection)
 
     for key, indices in profile_faces.items():
         if len(indices) != 1 or any((ambiguity or {}).get(i) for i in indices):
             groups[key].surface_reference = None
-            groups[key].selection_error = "This sketch surface is split or ambiguous. Select an unambiguous surface or edit from the feature tree."
+            groups[key].selection_error = "This surface is split or ambiguous. Select an unambiguous surface or edit from the feature tree."
 
     # Preserve ledger order so node order in the GLB is stable across rebuilds;
     # a viewer diffing scenes then sees a moved vertex, not a reshuffled scene.

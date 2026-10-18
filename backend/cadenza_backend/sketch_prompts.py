@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from time import monotonic
 from uuid import uuid4
 
-from cadenza_backend.agents.model_client import ModelClient, AIError, AINotConfigured, AIRefused
+from cadenza_backend.agents.model_client import ModelClient, AIError, AINotConfigured, AIRefused, AIProviderError
 from cadenza_backend.agents.sketch_editor import CARD, SketchIntent
 from cadenza_backend.edit_preview import changes_between, pending
 from cadenza_backend.session import Session
@@ -138,6 +138,8 @@ async def handle_sketch_prompt(session: Session, request: DraftPrompt | DraftPro
         raise CadenzaError(ErrorCode.AGENT_TIMEOUT, "Sketch interpretation timed out; the draft is unchanged") from exc
     except AINotConfigured as exc:
         raise CadenzaError(ErrorCode.AGENT_UNAVAILABLE, "No AI provider is configured; direct sketch controls remain available") from exc
+    except AIProviderError as exc:
+        raise CadenzaError(exc.code, str(exc)) from exc
     except AIRefused as exc:
         raise CadenzaError(ErrorCode.AGENT_REFUSED, "The provider declined this request; the draft is unchanged") from exc
     except AIError as exc:

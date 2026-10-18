@@ -214,7 +214,7 @@ async def verify_edit(before: dict[str, Ledger], after: dict[str, Ledger], promp
 
 async def publish_preview(session, ledgers, outcome, message_id, emit, *, summary="", patch=None, prompt="", assumptions=None,
                           draft_id=None, draft_revision=None, verification_scope=None, display_ledger_id=None,
-                          prompt_scope: Literal["source", "assembly"] = "source"):
+                          prompt_scope: Literal["source", "assembly"] = "source", context_path=None):
     if not outcome.ok or outcome.stub:
         raise CadenzaError(ErrorCode.GEOMETRY_KERNEL_FAILURE, "A real successful geometry build is required for preview.")
     base = session.snapshot()
@@ -222,7 +222,23 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     if not changes:
         raise CadenzaError(ErrorCode.PATCH_INVALID, "The candidate contains no changes.")
     checks = await verify_edit(base, ledgers, prompt, verification_scope=verification_scope, prompt_scope=prompt_scope)
+    from cadenza_contracts.messages import AttachmentContact
     from cadenza_backend.assembly_commands import source_uses
+    attachment_contacts = []
+    for lid, ledger in ledgers.items():
+        planar = [j for j in ledger.assembly.joints if j.target_a.mode == "planar_face"] if ledger.assembly else []
+        if not planar:
+            continue
+        evidence = await inspect(ledger, {"query_type": "attachment_contacts"}, ledgers)
+        contacts = [AttachmentContact.model_validate(item) for item in evidence.get("contacts", []) if item.get("definition_id") == lid]
+        if evidence.get("interference_checked") is not True or {c.joint_id for c in contacts} != {j.id for j in planar}:
+            raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, "Attachment contact verification is incomplete.")
+        attachment_contacts.extend(contacts)
+        names = {c.id: c.name or c.id for c in ledger.assembly.components}
+        for joint in planar:
+            check = next(c for c in contacts if c.joint_id == joint.id)
+            checks.append(f"Face contact verified in {ledger.metadata.name}: {names[joint.component_a]} -> {names[joint.component_b]}; {check.area_mm2:.3f} mm? contact area. Interference checked.")
+
     for lid, ledger in ledgers.items():
         if (lid in base
                 and ledger.model_dump(exclude={"revision"}) != base[lid].model_dump(exclude={"revision"})):
@@ -232,7 +248,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
                     checks.append(f"Shared source {ledger.metadata.name}: affects {len(uses)} instance(s): " + "; ".join(uses))
             except ValueError:
                 checks.append(f"Shared source {ledger.metadata.name}: the complete design was rebuilt; occurrence listing exceeds supported authoring limits or contains unresolved definitions.")
-            if ledger.assembly is None and any(l.assembly and l.assembly.joints for l in ledgers.values()):
+            if ledger.assembly is None and any(l.assembly and any(j.target_a.mode == "coordinate" for j in l.assembly.joints) for l in ledgers.values()):
                 checks.append("Coordinate attachments stay at their recorded anchors after source edits. A successful build does not prove face contact; review gaps and alignment.")
         if lid not in base and ledger.assembly is not None:
             checks.append(f"New shared subassembly {ledger.metadata.name}: {len(ledger.assembly.components)} child instances; created atomically on Apply.")
@@ -246,6 +262,9 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
             for action, joints in (("Detach", [j for j in previous.assembly.joints if j.id not in retained]),
                     ("Attach", [j for j in ledger.assembly.joints if j.id not in old_ids])):
                 for joint in joints:
+                    if joint.target_a.mode == "planar_face":
+                        checks.append(f"{action} face attachment: {names[joint.component_a]} -> {names[joint.component_b]} in {ledger.metadata.name}.")
+                        continue
                     checks.append(f"{action} {names[joint.component_a]} -> {names[joint.component_b]} in {ledger.metadata.name}: "
                         f"A point {joint.target_a.point}, normal {joint.target_a.normal}; B point {joint.target_b.point}, normal {joint.target_b.normal}. "
                         "Points are stored owner coordinates in mm, before joint solving.")
@@ -268,21 +287,35 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
         display_outcome = await build_design(ledgers, display_ledger_id)
         if not display_outcome.ok or display_outcome.stub:
             raise CadenzaError(display_outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, display_outcome.detail)
+    matrix = context_warning = None
+    view = session.source_view
+    if context_path is None and view and view.ledger_id == display_ledger_id and view.revision == session.revision:
+        context_path = view.component_path
+    if display_ledger_id and context_path:
+        try:
+            context = await inspect(ledgers[session.primary_ledger_id], dict(query_type="instance_context",
+                component_path=context_path, source_ledger_id=display_ledger_id), ledgers)
+            matrix = context["source_to_project"]
+        except CadenzaError:
+            context_warning = "Part context could not be resolved. Review the whole candidate assembly instead."
+            context_path = None
     preview_id = uuid4().hex
     url = f"/api/sessions/{session.id}/previews/{preview_id}"
     message = PreviewReady(message_id=message_id, preview_id=preview_id, base_revision=session.revision,
-        summary=summary, prompt=prompt, changes=changes, checks=checks, assumptions=assumptions or [],
+        summary=summary, prompt=prompt, changes=changes, checks=checks, attachment_contacts=attachment_contacts, assumptions=assumptions or [],
         glb_url=f"{url}/model.glb" if outcome.glb else None,
         step_url=f"{url}/model.step" if outcome.step else None, empty=outcome.empty,
         draft_id=draft_id, draft_revision=draft_revision, display_ledger_id=display_ledger_id,
         source_glb_url=f"{url}/source.glb" if display_outcome and display_outcome.glb else None,
         source_step_url=f"{url}/source.step" if display_outcome and display_outcome.step else None,
-        source_empty=display_outcome.empty if display_outcome else False)
+        source_empty=display_outcome.empty if display_outcome else False,
+        context_component_path=context_path, source_to_project=matrix, context_warning=context_warning)
     session.preview = PendingPreview(preview_id, base, ledgers, outcome, message, patch or [], display_outcome=display_outcome)
     from cadenza_backend.diagnostics import event, snapshot
     event("preview.published", preview_id=preview_id, originating_message_id=message_id,
+        display_ledger_id=display_ledger_id, context_component_path=context_path,
         candidate=snapshot(ledgers), changes=[c.model_dump(mode="json") for c in changes],
-        checks=checks, volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
+        checks=checks, attachment_contacts=[c.model_dump(mode="json") for c in attachment_contacts], volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
     await emit(message)
 
 
@@ -329,7 +362,7 @@ async def preview_parameter(session: Session, request: ParameterEdit | NamedPara
     _, ledgers = stage_operations(session, [op])
     outcome = await build_design(ledgers, session.primary_ledger_id)
     if not outcome.ok:
-        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail)
+        raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail, interference=outcome.interference)
     await publish_preview(session, ledgers, outcome, request.message_id, emit,
         summary=f"Set {label} to {request.value:g} {unit}.", display_ledger_id=request.ledger_id,
         patch=[op.model_dump(mode="json", by_alias=True)])

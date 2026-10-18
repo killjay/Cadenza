@@ -55,6 +55,7 @@ from cadenza_backend.agents.parameter_instructions import PARAMETER_INSTRUCTIONS
 from cadenza_contracts.parameters import Relationships
 from cadenza_contracts.profiles import ProfileDefinition
 from cadenza_backend.agents.profile_instructions import PROFILE_INSTRUCTIONS
+from cadenza_backend.agents.pattern_instructions import PATTERN_INSTRUCTIONS
 
 _feature_adapter: TypeAdapter[Feature] = TypeAdapter(Feature)
 
@@ -87,7 +88,7 @@ DRAFTSMAN_OUTPUT_SCHEMA = {
     "properties": {
         "summary": {
             "type": "string",
-            "description": "One sentence, user-facing, past tense, naming the real dimensions.",
+            "description": "One sentence describing the proposed part and its real dimensions; not yet applied.",
         },
         "features": {
             "type": "array",
@@ -242,6 +243,12 @@ DRAFTSMAN_OUTPUT_SCHEMA["$defs"].update(_profile_schema.pop("$defs"))
 DRAFTSMAN_OUTPUT_SCHEMA["properties"]["features"]["items"]["properties"]["parameters"]["properties"].update(_profile_schema["properties"])
 
 DRAFTSMAN_SYSTEM = """\
+USER-FACING EXPLANATIONS: Use human part and feature names, useful dimensions and units in summaries,
+descriptions, questions and assumption explanations. Do not expose ledger IDs, schema paths or
+internal variable names in prose. Keep exact machine fields in structured operations unchanged.
+Describe a proposed change, not an applied result: acceptance happens only after the user clicks Apply.
+State important uncertainty, omissions and shared-part impact plainly. If blocked, ask one actionable
+clarification instead of asking the user to supply internal IDs. Do not claim unsupported capabilities.
 You are the Draftsman in CADenza, a natural-language CAD system. You turn a plain-English \
 description of a part into an ordered list of parametric features. You never write code — \
 your entire output is the structured feature list.
@@ -263,8 +270,8 @@ FEATURE VOCABULARY (this is all you have; compose these)
   revolve  -> vertices (list of [x,y]), angle, axis ([x,y,z])
   loft     -> sections (list of dicts)
   extrude  -> target_feature (must be feature ID), amount, twist, taper
-  linear_pattern -> target_feature (must be feature ID), count, spacing, axis. operation: add
-  circular_pattern -> target_feature (must be feature ID), count, radius, sweep_angle. operation: add
+  linear_pattern -> target_feature (earlier seed name), count, spacing, axis. Inherit seed operation.
+  circular_pattern -> target_feature (earlier seed name), count, radius (required), sweep_angle. Inherit seed operation.
   threaded_hole -> designation, diameter, through, depth, pitch (optional)
   fastener -> designation, diameter, length, head_type (socket|hex|flat|button). operation: add
 
@@ -419,7 +426,7 @@ def draftsman_system(has_images: bool = False) -> str:
     does not pay for instructions about dimension lines it will never see — and,
     more usefully, so the model is not primed to hallucinate an image.
     """
-    return DRAFTSMAN_SYSTEM + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS + (
+    return DRAFTSMAN_SYSTEM + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS + PATTERN_INSTRUCTIONS + (
         "\nFor initial creation, emit an optional relationships object next to features. "
         "In each binding.feature_id use the EXACT UNIQUE feature name; the server replaces it with a minted ID. "
         "Supply valid numeric initial feature inputs as well. Omit relationships when none are requested.\n"

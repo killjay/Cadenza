@@ -3,6 +3,43 @@ import assert from "node:assert/strict";
 import { loadModule } from "./load-module.mjs";
 
 const helper = await loadModule("../src/lib/featureCommands.ts");
+
+test("decimal text inputs retain numeric bounds and integer counts", () => {
+  for (const value of ["-2.5", ".5", "1e2", "+4", "0", "10."])
+    assert.equal(helper.numericInputError(value, -100, 100, "any"), "");
+  for (const value of [" ", "NaN", "Infinity", "1e999", "0x20", "2mm", "-", "1,5"])
+    assert.notEqual(helper.numericInputError(value), "", value);
+  assert.equal(helper.numericInputError(""), ""); // Native required validation owns an empty input.
+  assert.notEqual(helper.numericInputError("-1", 0), "");
+  assert.notEqual(helper.numericInputError("33", 2, 32, 1), "");
+  assert.notEqual(helper.numericInputError("2.5", 2, 32, 1), "");
+  assert.equal(helper.numericInputError("6", 2, 32, 1), "");
+});
+
+test("grouped feature drafts send only changed editable fields and reject invalid values", () => {
+  const fields = [
+    { key: "height", label: "Height", value: 10, derived: false, operation: { op: "set_dimension", parameter: "height" } },
+    { key: "x", label: "X", value: 0, derived: false, operation: { op: "set_origin", axis: "x" } },
+    { key: "width", label: "Width", value: 20, derived: true, operation: { op: "set_dimension", parameter: "width" } },
+  ];
+  const draft = { height: "15", x: "-2.5", width: "99", other: "42" };
+  assert.deepEqual(JSON.parse(JSON.stringify(helper.featureEditCommands("feat_box", fields, draft))), [
+    { op: "set_dimension", parameter: "height", feature_id: "feat_box", value: 15 },
+    { op: "set_origin", axis: "x", feature_id: "feat_box", value: -2.5 },
+  ]);
+  assert.equal(helper.featureEditCommands("feat_box", fields, { height: "10.0", x: "0" }).length, 0);
+  for (const height of ["", " ", "-1", "0", "Infinity", "0x20", "1mm"])
+    assert.throws(() => helper.featureEditCommands("feat_box", fields, { height }));
+  assert.throws(() => helper.featureEditCommands("feat_box", fields, { x: "1e10" }));
+  assert.equal(draft.height, "15");
+});
+
+test("numeric draft target-change guard can cancel without a mutation", () => {
+  const target = new EventTarget();
+  assert.equal(helper.requestNumericDraftDiscard(target), true);
+  target.addEventListener("cadenza:discard-numeric-edits", e => e.preventDefault());
+  assert.equal(helper.requestNumericDraftDiscard(target), false);
+});
 const capability = { kind: "hole", dimensions: ["diameter", "depth"], origin_axes: ["x", "y", "z"], create_operations: ["subtract"], suppress: true, remove: true };
 const hole = { id: "feat_hole", kind: "hole", suppressed: false, placement: { origin: [0, 0, 0], relative_to: null }, parameters: { diameter: 4, through: true, depth: null } };
 const ledger = { features: [hole], relationships: { parameters: {}, bindings: [] } };

@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useEffect } from "react";
 import { useStore } from "../lib/store";
 import type { DraftVariable } from "../lib/types";
@@ -93,7 +94,7 @@ export function SketchDraftEditor() {
         <button className={button} disabled={disabled} onClick={() => state.updateDraft([{ op: "remove_entity", entity_id: entity.id }])}>Remove entity</button>
         {!!free.length && <div><p>Free values (mm)</p>{free.map(parameter => <form id={`draft-seed-${parameter}`} tabIndex={-1} key={`${draft.revision}:${entity.id}:${parameter}`} className="my-1 flex items-end gap-2"
           onSubmit={event => { event.preventDefault(); state.updateDraft([{ op: "set_seed", entity_id: entity.id, parameter, value: Number(new FormData(event.currentTarget).get("value")) }]); }}>
-          <label className="min-w-0 flex-1">{parameter}<input className={field} aria-label={`Free ${parameter}`} type="number" step="any" required name="value" defaultValue={entity[parameter] ?? 0} disabled={disabled} /></label>
+          <label className="min-w-0 flex-1">{parameter}<NumericInput className={field} aria-label={`Free ${parameter}`} step="any" required name="value" defaultValue={entity[parameter] ?? 0} disabled={disabled} /></label>
           <button className={button} disabled={disabled}>Set</button>
         </form>)}</div>}
         <form key={`dimension:${entity.id}:${draft.revision}`} className="space-y-1 rounded border border-hairline p-2" onSubmit={event => {
@@ -103,7 +104,7 @@ export function SketchDraftEditor() {
           <label>Dimension<select aria-label="New dimension variable" name="parameter" className={field} disabled={disabled}>
             {variables.map(p => <option key={p} value={p}>{p}</option>)}
           </select></label>
-          <label>Value (mm)<input aria-label="New dimension value" className={field} name="value" type="number" step="any" defaultValue={0} required disabled={disabled} /></label>
+          <label>Value (mm)<NumericInput aria-label="New dimension value" className={field} name="value" step="any" defaultValue={0} required disabled={disabled} /></label>
           <button className={button} disabled={disabled}>Add dimension</button>
         </form>
         <button className={button} disabled={disabled || !free.length} onClick={() => state.updateDraft(free.map(parameter => ({
@@ -127,7 +128,7 @@ export function SketchDraftEditor() {
           {binding && <p className="break-words">Driven by {binding.expression}. Editing this driver can affect other features.</p>}
           {c.kind === "dimension" ? <form className="flex items-end gap-2" onSubmit={event => {
             event.preventDefault(); state.updateDraft([{ op: "set_dimension", constraint_id: c.id, value: Number(new FormData(event.currentTarget).get("value")) }]);
-          }}><label className="min-w-0 flex-1">{c.parameter} (mm)<input aria-label={`Draft dimension ${c.id}`} className={field} name="value" type="number" step="any" required defaultValue={c.value} disabled={disabled || derived} /></label>
+          }}><label className="min-w-0 flex-1">{c.parameter} (mm)<NumericInput aria-label={`Draft dimension ${c.id}`} className={field} name="value" step="any" required defaultValue={c.value} disabled={disabled || derived} /></label>
             <button className={button} disabled={disabled || derived}>Update</button></form> : <p className="break-all">Shared centre: {c.entity_a} = {c.entity_b}</p>}
           <button aria-label={`Remove ${c.id}`} className={button} disabled={disabled || !!binding}
             title={binding ? "Bound dimensions cannot be removed; edit the driver" : undefined}
@@ -139,13 +140,13 @@ export function SketchDraftEditor() {
         {Object.entries(draft.relationships.parameters).map(([name, driver]) => <form key={`${draft.revision}:${name}`} className="my-1 flex items-end gap-2" onSubmit={event => {
           event.preventDefault(); state.updateDraft([{ op: "set_driver", parameter: name, value: Number(new FormData(event.currentTarget).get("value")) }]);
         }}><label className="min-w-0 flex-1">{name} ({driver.unit}){driver.expression ? <span className="block">Derived: {driver.expression}</span>
-          : <input aria-label={`Draft driver ${name}`} className={field} type="number" step="any" required name="value" defaultValue={driver.value ?? 0} disabled={disabled} />}</label>
+          : <NumericInput aria-label={`Draft driver ${name}`} className={field} step="any" required name="value" defaultValue={driver.value ?? 0} disabled={disabled} />}</label>
           {!driver.expression && <button className={button} disabled={disabled}>Update driver</button>}
         </form>)}
       </details>}
       {draft.is_new && <form key={`extrusion:${draft.revision}`} className="flex items-end gap-2" onSubmit={event => {
         event.preventDefault(); state.updateDraft([{ op: "set_extrusion", amount: Number(new FormData(event.currentTarget).get("value")) }]);
-      }}><label className="min-w-0 flex-1">Extrusion amount (mm)<input aria-label="Draft extrusion amount" className={field} name="value" type="number" min={0.00001} max={1e6} step="any" required defaultValue={draft.extrusion_amount ?? ""} disabled={disabled} /></label>
+      }}><label className="min-w-0 flex-1">Extrusion amount (mm)<NumericInput aria-label="Draft extrusion amount" className={field} name="value" min={0.00001} max={1e6} step="any" required defaultValue={draft.extrusion_amount ?? ""} disabled={disabled} /></label>
         <button className={button} disabled={disabled}>Set extrusion</button></form>}
     </div>
     <div className="mt-2 flex shrink-0 gap-4 border-t border-hairline pt-2">

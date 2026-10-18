@@ -24,6 +24,13 @@ test("Python serialized frames compile against complete TypeScript shapes", () =
   }
   const errors = diagnostics(fixtures);
   assert.equal(errors.length, 0, errors.map(e => ts.flattenDiagnosticMessageText(e.messageText, '\n')).join('\n'));
+  const olderPartServer = structuredClone(fixtures);
+  delete olderPartServer.server.find(f => f.type === "design.part.capabilities").rename_source;
+  delete olderPartServer.server.find(f => f.type === "design.part.capabilities").source_context;
+  assert.equal(diagnostics(olderPartServer).length, 0, "source rename is optional for older servers");
+  const incompleteRename = structuredClone(fixtures);
+  delete incompleteRename.client.find(f => f.type === "design.part.rename").ledger_id;
+  assert.ok(diagnostics(incompleteRename).length > 0, "rename requires the stable source identity");
   const badAssemblyTarget = structuredClone(fixtures);
   badAssemblyTarget.client.find(f => f.type === "design.assembly.prompt").target = { kind: "source", ledger_id: "other" };
   assert.ok(diagnostics(badAssemblyTarget).length > 0, "assembly prompts require a supported explicit target");

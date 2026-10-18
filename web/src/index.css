@@ -74,6 +74,48 @@ canvas {
   cursor: crosshair;
 }
 
+/* Workspace panels own layout only; the viewport and both inspector tabs stay mounted. */
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 6px min(var(--inspector-width), 55%);
+  min-height: 0;
+  min-width: 0;
+}
+.workspace [hidden] { display: none !important; }
+.workspace-tree, .workspace-inspector {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-chrome);
+  overflow: hidden;
+}
+.workspace-tree { border-right: 1px solid var(--color-hairline); }
+.workspace-inspector { border-left: 1px solid var(--color-hairline); }
+.workspace-canvas { position: relative; min-width: 0; min-height: 0; }
+.workspace-canvas canvas { display: block; width: 100% !important; height: 100% !important; }
+.workspace-resizer { cursor: col-resize; touch-action: none; background: var(--color-chrome); }
+.workspace-resizer:hover, .workspace-resizer:focus-visible { background: var(--color-accent); outline: none; }
+.workspace-toolbar { display: none; }
+.chat-history { overflow-anchor: none; }
+.chat-history [data-search-match] { outline: 1px solid var(--color-accent); outline-offset: 2px; }
+.workspace button, .workspace summary { overflow-wrap: anywhere; }
+.app-titlebar { overflow-x: auto; }
+.app-titlebar > * { flex-shrink: 0; }
+.app-titlebar section[aria-label] { position: fixed; top: 36px; left: 8px; width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 64px); overflow: auto; }
+.workspace ~ footer { min-width: 0; overflow-x: auto; }
+.workspace ~ footer > * { flex-shrink: 0; }
+.workspace ~ footer section[aria-label="Diagnostics"] { position: fixed; right: 8px; bottom: 28px; }
+@media (max-width: 1100px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr); }
+  .workspace-toolbar { display: flex; align-items: center; gap: 12px; padding: 4px 10px; background: var(--color-chrome); }
+  .workspace-toolbar button { color: var(--color-accent); flex-shrink: 0; }
+  .workspace-tree, .workspace-inspector { position: absolute; z-index: 30; top: 36px; bottom: 0; width: min(380px, calc(100% - 36px)); box-shadow: var(--shadow-pop); }
+  .workspace-tree { left: 0; }
+  .workspace-inspector { right: 0; }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }

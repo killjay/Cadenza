@@ -10,12 +10,12 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { createViewport } from "../viewport/scene";
 import type { Viewport as Vp } from "../viewport/scene";
-import { buildWireframe, disposeSubtree, parseGlb, swapModel } from "../viewport/model";
+import { assemblyContext, buildWireframe, disposeSubtree, highlightInterference, parseGlb, swapModel } from "../viewport/model";
 import { PickTarget, pointerToNdc } from "../viewport/pick";
 import type { PickMeshData } from "../viewport/pick";
 import { occt } from "../workers/occtClient";
 import { useStore } from "../lib/store";
-import type { Vec3, SurfaceReference } from "../lib/types";
+import type { Vec3, SurfaceReference, SourceGeometryContext } from "../lib/types";
 
 /** Drag threshold, in px, above which a pointerup is an orbit and not a click. */
 const CLICK_SLOP = 4;
@@ -27,9 +27,12 @@ export function Viewport() {
   const highlightRef = useRef<THREE.Object3D | null>(null);
   const wireRef = useRef<THREE.LineSegments | null>(null);
   const firstLoadRef = useRef(true);
+  const contextRef = useRef<THREE.Group | null>(null);
+  const displayFrame = useRef(new THREE.Matrix4());
 
   const showGrid = useStore((s) => s.showGrid);
   const showEdges = useStore((s) => s.showEdges);
+  const showContext = useStore(s => s.showContext);
   const sketchActive = useStore(s => !!s.draft && !s.preview);
   const selections = useStore((s) => s.selections);
 
@@ -63,6 +66,15 @@ export function Viewport() {
     let displayedGeneration = -1;
     let pendingPick: PickDelivery | null = null;
     let mounted = true;
+    const showInterference = () => {
+      const state = useStore.getState(), paths = state.preview ? [] : state.interference?.paths ?? [];
+      if (vpRef.current) highlightInterference(vpRef.current.modelRoot, paths,
+        state.model?.source === "source" ? state.selectedSourcePath?.join("/") ?? "" : undefined);
+      if (contextRef.current) highlightInterference(contextRef.current, paths);
+    };
+    const unsubscribe = useStore.subscribe((state, previous) => {
+      if (state.interference !== previous.interference) showInterference();
+    });
     const invalidate = (): void => {
       displayedGeneration = -1;
       pendingPick = null;
@@ -71,15 +83,21 @@ export function Viewport() {
       clearHighlight();
       if (wireRef.current) disposeSubtree(wireRef.current);
       wireRef.current = null;
+      if (contextRef.current) disposeSubtree(contextRef.current);
+      contextRef.current = null;
     };
-    const clear = (): void => {
+    const clear = (event: Event): void => {
       invalidate();
       const vp = vpRef.current;
       if (vp) {
         for (const child of vp.modelRoot.children.slice()) disposeSubtree(child);
         vp.setGroundLevel(0);
       }
-      firstLoadRef.current = true;
+      if (!(event as CustomEvent<{ preserveCamera?: boolean }>).detail?.preserveCamera) {
+        if (!displayFrame.current.equals(new THREE.Matrix4())) vp?.transformCamera(displayFrame.current);
+        displayFrame.current.identity();
+        firstLoadRef.current = true;
+      }
     };
     const applyPick = (data: PickDelivery): void => {
       const vp = vpRef.current;
@@ -95,25 +113,51 @@ export function Viewport() {
     const onGlb = async (ev: Event): Promise<void> => {
       const vp = vpRef.current;
       if (!vp) return;
-      const { glb, generation } = (ev as CustomEvent<{ glb: ArrayBuffer; generation: number }>).detail;
+      const { glb, generation, context } = (ev as CustomEvent<{ glb: ArrayBuffer; generation: number; context?: SourceGeometryContext }>).detail;
       invalidate();
+      if (useStore.getState().preview) useStore.setState({ previewRendering: true });
       try {
-        const model = await parseGlb(glb);
+        const state = useStore.getState();
+        const policy = state.model?.source === "local" ? "imported" : state.model?.source === "source" || (state.preview?.display_ledger_id && !state.previewWhole) ? "source" : "assembly";
+        const model = await parseGlb(glb, policy);
         if (!mounted || generation !== useStore.getState().geometryGeneration) {
           disposeSubtree(model.root);
           return;
         }
         const isFirst = firstLoadRef.current;
         firstLoadRef.current = false;
+        const frame = context ? new THREE.Matrix4().fromArray(context.sourceToProject).transpose()
+          : !state.previewWhole && state.preview?.display_ledger_id === state.selectedSourceId && state.selectedSourceId ? displayFrame.current.clone() : new THREE.Matrix4();
+        if (!frame.equals(displayFrame.current)) vp.transformCamera(frame.clone().invert().multiply(displayFrame.current));
+        displayFrame.current.copy(frame);
         swapModel(vp, model, isFirst);
         displayedGeneration = generation;
         useStore.setState((s) => ({
-          model: s.model ? { ...s.model, parseMs: Math.round(model.parseMs), triangleCount: model.triangleCount } : s.model,
+          model: s.model ? { ...s.model, parseMs: Math.round(model.parseMs), triangleCount: model.triangleCount, colorMode: model.colorMode } : s.model,
         }));
         if (pendingPick) applyPick(pendingPick);
+        if (context) {
+          try {
+            const faded = await parseGlb(context.glb, "assembly");
+            if (!mounted || generation !== useStore.getState().geometryGeneration) { disposeSubtree(faded.root); return; }
+            const group = assemblyContext(faded, context.sourceToProject, context.componentPath);
+            group.visible = useStore.getState().showContext;
+            vp.scene.add(group);
+            contextRef.current = group;
+            showInterference();
+          } catch {
+            if (mounted && generation === useStore.getState().geometryGeneration)
+              useStore.setState(useStore.getState().preview
+                ? { previewError: "Candidate context could not be displayed. Choose Whole assembly to review it." }
+                : { sourceContextWarning: "Assembly context could not be displayed. Showing the part alone." });
+          }
+        }
+        showInterference();
+        if (mounted && generation === useStore.getState().geometryGeneration) useStore.setState({ previewRendering: false });
       } catch (err) {
         if (mounted && generation === useStore.getState().geometryGeneration) {
-          useStore.getState().say({ kind: "error", text: `Model display failed: ${String(err)}` });
+          if (useStore.getState().preview) useStore.setState({ previewRendering: false, previewError: "Candidate display failed. Cancel or reload the preview." });
+          useStore.getState().say({ kind: "error", text: `Model display failed: ${String(err)}`, error: { code: "MODEL_DISPLAY" } });
         }
       }
     };
@@ -129,6 +173,7 @@ export function Viewport() {
     window.addEventListener("cadenza:invalidate", invalidate);
     return () => {
       mounted = false;
+      unsubscribe();
       invalidate();
       window.removeEventListener("cadenza:glb", onGlb as EventListener);
       window.removeEventListener("cadenza:pickmesh", onPickMesh);
@@ -220,6 +265,11 @@ export function Viewport() {
 
     let downAt: { x: number; y: number } | null = null;
     let lastClickTime = 0;
+    const blocked = () => {
+      const state = useStore.getState();
+      return state.preview?.display_ledger_id || (state.draft && !state.preview) || (state.selectedSourceId
+        && (state.sourceLoading || !state.sourceView || state.model?.source !== "source" || state.model.pickMs === undefined));
+    };
 
     const hoverRef = { current: null as THREE.Mesh | null };
     let hoverHash = -1;
@@ -239,7 +289,7 @@ export function Viewport() {
     window.addEventListener("cadenza:glb", clearHover);
 
     const onPointerMove = (e: PointerEvent): void => {
-      if (useStore.getState().selectedSourceId || useStore.getState().preview?.display_ledger_id || (useStore.getState().draft && !useStore.getState().preview)) { clearHover(); return; }
+      if (blocked()) { clearHover(); return; }
       const target = pickRef.current;
       if (!target) return;
 
@@ -266,13 +316,13 @@ export function Viewport() {
     };
 
     const onPointerDown = (e: PointerEvent): void => {
-      if (useStore.getState().selectedSourceId || useStore.getState().preview?.display_ledger_id || (useStore.getState().draft && !useStore.getState().preview)) return;
+      if (blocked()) return;
       if (e.button !== 0) return;
       downAt = { x: e.clientX, y: e.clientY };
     };
 
     const onPointerUp = (e: PointerEvent): void => {
-      if (useStore.getState().selectedSourceId || useStore.getState().preview?.display_ledger_id || (useStore.getState().draft && !useStore.getState().preview)) { downAt = null; return; }
+      if (blocked()) { downAt = null; return; }
       if (e.button !== 0 || !downAt) return;
       const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
       downAt = null;
@@ -306,7 +356,9 @@ export function Viewport() {
       const isMulti = e.ctrlKey || e.metaKey;
 
       let mode: "face" | "side" | "part" = "face";
-      if (e.shiftKey) {
+      if (useStore.getState().faceAttachment) {
+        mode = "face";
+      } else if (e.shiftKey) {
         mode = "side";
       } else if (isDoubleClick) {
         mode = "part";
@@ -334,7 +386,10 @@ export function Viewport() {
       }
 
       const point: Vec3 = [hit.point.x, hit.point.y, hit.point.z];
+      const state = useStore.getState();
       const newSel = {
+        ...(state.selectedSourceId ? { source: { ledgerId: state.selectedSourceId, revision: state.sessionRevision,
+          generation: state.geometryGeneration, componentPath: state.selectedSourcePath } } : {}),
         mode,
         feature_id,
         component_id,
@@ -401,9 +456,11 @@ export function Viewport() {
     if (wireRef.current) wireRef.current.visible = showEdges;
   }, [showEdges]);
 
+  useEffect(() => { if (contextRef.current) contextRef.current.visible = showContext; }, [showContext]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (useStore.getState().selectedSourceId || useStore.getState().preview?.display_ledger_id || (useStore.getState().draft && !useStore.getState().preview)) return;
+      if (useStore.getState().preview?.display_ledger_id || (useStore.getState().draft && !useStore.getState().preview)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
       if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;

@@ -82,3 +82,45 @@ def test_result_read_failure_preserves_source_view_and_recovers(monkeypatch, pla
         assert session.source_view is not prior and len(frames) == 1
     finally:
         registry.drop(session.id)
+
+
+def test_context_view_is_revision_bound_and_read_only(plate_ledger):
+    source = plate_ledger
+    root = Ledger.model_validate({"assembly": {"components": [{"id": "comp_plate",
+        "sub_assembly_id": source.project_id, "placement": {"origin": [80, 20, 0], "rotation_deg": [0, 0, 90]}}]}})
+    session = Session(primary_ledger_id=root.project_id, stores={l.project_id: LedgerStore(l) for l in (root, source)})
+    registry.register(session)
+    frames = []
+    async def emit(frame): frames.append(frame)
+    before = session.snapshot()
+    try:
+        asyncio.run(view_part(session, PartViewRequest(message_id="view", base_revision=0,
+            ledger_id=source.project_id, component_path=["comp_plate"]), emit))
+        frame = frames[0]
+        assert frame.component_path == ["comp_plate"] and frame.context_glb_url
+        assert [frame.source_to_project[i] for i in (3, 7, 11)] == pytest.approx([80, 20, 0])
+        assert bytes(asyncio.run(source_artifact(session.id, frame.view_id, "context.glb")).body).startswith(b"glTF")
+        assert session.snapshot() == before and not session.history and session.last_geometry is None
+        session.store.ledger.revision += 1
+        with pytest.raises(HTTPException): asyncio.run(source_artifact(session.id, frame.view_id, "context.glb"))
+    finally:
+        registry.drop(session.id)
+
+
+def test_invalid_context_rejects_before_build_and_context_failure_is_explicit(monkeypatch, plate_ledger):
+    from unittest.mock import AsyncMock
+    from cadenza_backend import part_views
+    from cadenza_backend.contracts_bridge import CadenzaError, ErrorCode
+    root = Ledger.model_validate({"assembly": {"components": [{"id": "comp_plate", "sub_assembly_id": plate_ledger.project_id}]}})
+    session = Session(primary_ledger_id=root.project_id, stores={l.project_id: LedgerStore(l) for l in (root, plate_ledger)})
+    request = dict(message_id="view", base_revision=0, ledger_id=plate_ledger.project_id)
+    frames = []
+    async def emit(frame): frames.append(frame)
+    with monkeypatch.context() as patch:
+        build = AsyncMock(); patch.setattr(part_views, "build_design", build)
+        with pytest.raises(CadenzaError): asyncio.run(view_part(session, PartViewRequest.model_validate({**request, "component_path": ["comp_wrong"]}), emit))
+        build.assert_not_called()
+    monkeypatch.setattr(part_views, "inspect", AsyncMock(side_effect=CadenzaError(ErrorCode.GEOMETRY_TIMEOUT, "injected")))
+    asyncio.run(view_part(session, PartViewRequest.model_validate({**request, "component_path": ["comp_plate"]}), emit))
+    assert frames[0].glb_url and frames[0].context_warning
+    assert frames[0].context_glb_url is None and session.source_view is not None and session.source_view.context_glb is None

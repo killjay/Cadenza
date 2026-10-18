@@ -117,9 +117,17 @@ export interface PatternCapabilitiesResponse {
   seed_kinds: ["box", "cylinder", "hole"]; directions: PatternDirection[];
   count_min: 2; count_max: 32; copy_budget: 128; radius_mode: "seed_position";
 }
+export interface SourceFaceContext {
+  mode: "edit_feature" | "add_on_face"; reference: SurfaceReference;
+  point: Vec3; normal: Vec3; component_path?: string[] | null;
+}
+export interface Interference {
+  definition_id: string; component_a: string[]; component_b: string[]; volume_mm3: number;
+}
 export interface DesignPrompt {
   type: "design.prompt"; message_id: string; base_revision: number; ledger_id: string;
   feature_id?: string | null; scope: "source"; prompt: string; images?: InlineImage[];
+  face?: SourceFaceContext | null;
 }
 export interface PromptCapabilitiesRequest { type: "design.prompt.capabilities"; message_id: string; }
 export type AssemblyPromptTarget = { kind: "definition" }
@@ -141,6 +149,7 @@ export interface AssemblyPromptCapabilitiesResponse {
 export interface PromptCapabilitiesResponse {
   type: "design.prompt.capabilities"; message_id: string; session_id: string;
   version: 1; scope: "source"; max_operations: 32;
+  source_faces?: true;
 }
 export interface CapabilitiesResponse {
   type: "design.capabilities"; message_id: string; session_id: string; version: 1;
@@ -235,13 +244,15 @@ export interface DesignCommand {
 
 export type PartOperation = Extract<CommandOperation, { op: "add_feature"; kind: "box" | "cylinder" | "hole" }>;
 export interface PartCreate { type: "design.part.create"; message_id: string; base_revision: number; name: string; operations: PartOperation[]; }
+export interface PartRename { type: "design.part.rename"; message_id: string; base_revision: number; ledger_id: string; name: string; }
 export interface PartPrompt { type: "design.part.prompt"; message_id: string; base_revision: number; name: string; prompt: string; images: InlineImage[]; }
-export interface PartViewRequest { type: "design.part.view"; message_id: string; base_revision: number; ledger_id: string; }
+export interface PartViewRequest { type: "design.part.view"; message_id: string; base_revision: number; ledger_id: string; component_path?: string[] | null; }
 export interface PartViewReady { type: "design.part.view_ready"; message_id: string; session_id: string; revision: number;
-  ledger_id: string; view_id: string; glb_url: string | null; step_url: string | null; empty: boolean; }
+  ledger_id: string; view_id: string; glb_url: string | null; step_url: string | null; empty: boolean;
+  component_path?: string[] | null; source_to_project?: number[] | null; context_glb_url?: string | null; context_warning?: string | null; }
 export interface PartCapabilitiesRequest { type: "design.part.capabilities"; message_id: string; }
 export interface PartCapabilitiesResponse { type: "design.part.capabilities"; message_id: string; session_id: string;
-  version: 1; starter_kinds: ["box", "cylinder"]; max_operations: 32; max_sources: 32; source_view: true; }
+  version: 1; starter_kinds: ["box", "cylinder"]; max_operations: 32; max_sources: 32; source_view: true; source_context?: true; rename_source?: true; }
 
 export type AssemblyOperation =
   | { op: "initialize_assembly"; name: string }
@@ -250,24 +261,26 @@ export type AssemblyOperation =
   | { op: "set_instance_placement"; component_id: string; placement: AbsoluteAssemblyPlacement }
   | { op: "rename_instance"; component_id: string; name: string }
   | { op: "remove_instance"; component_id: string }
+  | { op: "add_planar_attachment"; component_a: string; component_b: string; target_a: PlanarPick; target_b: PlanarPick }
   | { op: "add_rigid_joint"; component_a: string; component_b: string; target_a: AssemblyAnchor; target_b: AssemblyAnchor }
   | { op: "remove_joint"; joint_id: string }
   | { op: "create_subassembly"; name: string; instance_name: string; placement: AbsoluteAssemblyPlacement;
       children: { source_ledger_id: string; name: string; placement: AbsoluteAssemblyPlacement }[] };
+export interface PlanarPick { reference: SurfaceReference; point: Vec3; normal: Vec3; }
 export interface AssemblyAnchor { point: [number, number, number]; normal: [number, number, number] | null; }
 export interface AbsoluteAssemblyPlacement { origin: [number, number, number]; rotation_deg: [number, number, number]; }
 export interface AssemblyCommand { type: "design.assembly.command"; message_id: string; base_revision: number;
   ledger_id: string; owner_path?: string[]; scope: "assembly_definition"; operations: AssemblyOperation[]; }
 export type AssemblyCapabilitiesRequest = { type: "design.assembly.capabilities"; message_id: string } &
-  ({ version?: 1 } | { version: 2; ledger_id: string; owner_path: string[] });
+  ({ version?: 1 } | { version: 2 | 3; ledger_id: string; owner_path: string[] });
 export type AssemblyCapabilitiesResponse = { type: "design.assembly.capabilities"; message_id: string;
   session_id: string; revision: number; ledger_id: string; can_initialize: boolean; can_edit: boolean;
   reason: string | null; operations: string[]; max_operations: 16; max_components: 32; max_leaves: 128; max_depth: 8; } &
-  ({ version: 1 } | { version: 2; owner_path: string[]; max_subassemblies: 8; max_initial_children: 16 });
+  ({ version: 1 } | { version: 2 | 3; owner_path: string[]; max_subassemblies: 8; max_initial_children: 16 });
 
 export type ClientMessage =
   | AssemblyCommand | AssemblyCapabilitiesRequest | AssemblyPrompt | AssemblyPromptCapabilitiesRequest
-  | PartCreate | PartPrompt | PartViewRequest | PartCapabilitiesRequest
+  | PartCreate | PartRename | PartPrompt | PartViewRequest | PartCapabilitiesRequest
   | ClientHello | UserPrompt | SpatialProbe | LedgerRequest | LedgerCreate
   | SessionReset | SessionUndo | SessionRedo | Ping | ClientLog | ParameterEdit | NamedParameterEdit | SketchDimensionEdit | PreviewDecision
   | DraftStart | DraftUpdate | DraftAction | DraftPrompt | DraftProposalDecision | DesignCommand | CapabilitiesRequest
@@ -409,16 +422,19 @@ export interface ErrorMessage {
   message: string;
   detail?: string | null;
   recoverable: boolean;
+  interference?: Interference | null;
 }
 
 export interface Pong { type: "pong"; t: number; }
 
 export interface PreviewChange { ledger_id: string; path: string; before: unknown; after: unknown; }
 export interface PreviewReady {
+  attachment_contacts?: { definition_id: string; joint_id: string; separation_mm: number; normal_residual: number; area_mm2: number; references_resolved: true; contact_verified: true }[];
   type: "design.preview"; message_id: string; preview_id: string; base_revision: number;
   summary: string; prompt: string; changes: PreviewChange[]; checks: string[];
   assumptions: Assumption[]; glb_url: string | null; step_url: string | null; empty: boolean;
   display_ledger_id?: string | null; source_glb_url?: string | null; source_step_url?: string | null; source_empty?: boolean;
+  context_component_path?: string[] | null; source_to_project?: number[] | null; context_warning?: string | null;
   draft_id?: string | null; draft_revision?: number | null;
 }
 export interface PreviewClosed { type: "design.preview_closed"; message_id: string; preview_id: string; }
@@ -472,7 +488,7 @@ const CLIENT_MESSAGE_TYPES = new Set([
   "design.assembly.prompt", "design.assembly.prompt.capabilities",
   "design.assembly.command",
   "design.assembly.capabilities",
-  "design.part.capabilities", "design.part.create", "design.part.prompt", "design.part.view",
+  "design.part.capabilities", "design.part.create", "design.part.rename", "design.part.prompt", "design.part.view",
   "design.pattern.capabilities",
   "design.prompt", "design.prompt.capabilities",
   "client.hello", "user.prompt", "spatial.probe", "ledger.request",

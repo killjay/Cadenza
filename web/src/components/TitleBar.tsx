@@ -74,7 +74,7 @@ export function TitleBar() {
   const btnOn = "rounded-sm px-2 py-[3px] text-11 bg-wash-2 text-accent";
 
   return (
-    <header className="flex items-center gap-1 border-b border-hairline bg-chrome px-2">
+    <header className="app-titlebar flex min-w-0 items-center gap-1 border-b border-hairline bg-chrome px-2">
       <span className="mr-2 select-none text-12 font-medium tracking-tight text-ink">
         CADenza
         <span className="ml-1.5 rounded-sm bg-wash px-1 py-px text-9 text-ink-4">prototype</span>

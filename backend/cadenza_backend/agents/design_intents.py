@@ -67,6 +67,12 @@ class Unsupported(_Result):
 Intent = Annotated[Union[Proposal, Clarification, Unsupported], Field(discriminator="kind")]
 INTENT = TypeAdapter(Intent)
 CARD = AgentCard(name="Feature editor", tools=[], output_schema={"type": "object", **INTENT.json_schema()}, system_prompt="""
+USER-FACING EXPLANATIONS: Use human part and feature names, useful dimensions and units in summaries,
+descriptions, questions and assumption explanations. Do not expose ledger IDs, schema paths or
+internal variable names in prose. Keep exact machine fields in structured operations unchanged.
+Describe a proposed change, not an applied result: acceptance happens only after the user clicks Apply.
+State important uncertainty, omissions and shared-part impact plainly. If blocked, ask one actionable
+clarification instead of asking the user to supply internal IDs. Do not claim unsupported capabilities.
 Interpret an addition or edit to the explicitly selected source part. Return only a typed result.
 Use the provided command capabilities. Never emit patches, code, ledger IDs or new feature IDs.
 Only the pinned feature may be modified, suppressed, restored or removed. Without a pinned
@@ -99,7 +105,7 @@ Do not retarget a pattern, guess missing spacing/center/count, or create unsuppo
 """)
 
 
-async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False):
+async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False, face_context: dict | None = None):
     features = []
     for feature in ledger.features:
         data = feature.model_dump(mode="json")
@@ -114,12 +120,21 @@ async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient |
                     data["actual_radius_read_only"] = actual_radius(data, seed.model_dump(mode="json"))
         features.append(data)
     context = json.dumps(dict(request=request.prompt, feature_id=request.feature_id,
-        ledger_id=ledger.project_id, scope="source", features=features,
+        ledger_id=ledger.project_id, scope="source", features=features, selected_face=face_context,
         relationships=ledger.relationships.model_dump(mode="json"),
         capabilities=[c.model_dump(mode="json") for c in feature_capabilities()],
         pattern_capabilities=dict(count_includes_seed=True, count_min=2, count_max=32,
             copy_budget=128, directions=list(DIRECTIONS), radius_mode="seed_position")), allow_nan=False)
     card = CARD
+    if face_context:
+        card = replace(CARD, system_prompt=CARD.system_prompt + "\nSELECTED FACE: server-validated source-local context. "
+            "edit_feature mode permits only changes to the pinned feature, never additions. "
+            "add_on_face mode permits only add_feature box/cylinder/hole on this planar face, never patterns or existing-feature edits. "
+            "Place the origin on the selected trimmed face and align the construction direction with its normal. "
+            "Ask for missing placement, dimensions, cut depth/through and asymmetric feature orientation. "
+            "A click identifies a face, not a requested feature center. Do not assume the click is the new origin. "
+            "Do not invent a tangent frame or infer rectangle rotation from the normal alone. "
+            "Unsupported constructions need clarification or an unsupported response, not a fallback.")
     if new_part:
         context = json.dumps(dict(request=request.prompt, mode="new_part", name=ledger.metadata.name,
             allowed_kinds=["box", "cylinder", "hole"], max_operations=32), allow_nan=False)

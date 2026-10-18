@@ -7,7 +7,7 @@ from httpx import HTTPError
 from pydantic import ValidationError
 
 from cadenza_backend.agents.assembly_intents import Clarification, Unsupported, interpret
-from cadenza_backend.agents.model_client import AIError, AINotConfigured, AIRefused
+from cadenza_backend.agents.model_client import AIError, AINotConfigured, AIRefused, AIProviderError
 from cadenza_backend.assembly_commands import capabilities, resolve_owner, source_uses, validate_source, handle_assembly_command
 from cadenza_backend.config import get_settings
 from cadenza_backend.edit_preview import pending
@@ -18,7 +18,7 @@ from cadenza_contracts.messages import AssemblyPrompt, AgentMessage, AgentStatus
 
 
 def discovery(session, request: AssemblyPromptCapabilitiesRequest):
-    cap = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id, version=2,
+    cap = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id, version=3,
         ledger_id=request.ledger_id, owner_path=request.owner_path))
     reason = ("The design changed. Refresh the assembly context." if request.base_revision != session.revision else
               cap.reason or (None if get_settings().ai_available else "No AI provider is configured."))
@@ -36,6 +36,8 @@ def validate_target(owner, target):
             raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "Select an existing direct instance and its incident attachments.")
     if isinstance(target, AttachmentTarget):
         joint = joints.get(target.joint_id) if target.joint_id else None
+        if joint is not None and joint.target_a.mode == "planar_face":
+            raise CadenzaError(ErrorCode.BAD_MESSAGE, "Use Attach faces to edit this face attachment.")
         if not {target.component_a, target.component_b} <= components.keys() or (target.joint_id and
                 (joint is None or (joint.component_a, joint.component_b) != (target.component_a, target.component_b))):
             raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "Select an existing ordered pair and matching attachment.")
@@ -99,7 +101,7 @@ async def handle_assembly_prompt(session, request: AssemblyPrompt, emit, *, clie
         raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed. Refresh before editing.")
     if session.draft or pending(session):
         raise CadenzaError(ErrorCode.BUSY, "Finish the draft or apply/cancel the preview first.")
-    cap = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id, version=2,
+    cap = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id, version=3,
         ledger_id=request.ledger_id, owner_path=request.owner_path))
     if cap.reason:
         raise CadenzaError(ErrorCode.BAD_MESSAGE, cap.reason)
@@ -125,10 +127,12 @@ async def handle_assembly_prompt(session, request: AssemblyPrompt, emit, *, clie
         result = await interpret(request, context, client)
     except AINotConfigured as exc:
         raise CadenzaError(ErrorCode.AGENT_UNAVAILABLE, "No AI provider is configured.") from exc
+    except AIProviderError as exc:
+        raise CadenzaError(exc.code, str(exc)) from exc
     except AIRefused as exc:
         raise CadenzaError(ErrorCode.AGENT_REFUSED, "The provider declined this request.") from exc
     except asyncio.TimeoutError as exc:
-        raise CadenzaError(ErrorCode.AGENT_INVALID_OUTPUT, "Assembly interpretation timed out. Revise and try again.") from exc
+        raise CadenzaError(ErrorCode.AGENT_TIMEOUT, "Assembly interpretation timed out. Revise and try again.") from exc
     except (AIError, ValidationError, ValueError, HTTPError, KeyError, IndexError, TypeError) as exc:
         raise CadenzaError(ErrorCode.AGENT_INVALID_OUTPUT, "The interpreter did not return a valid supported assembly proposal.") from exc
     if session.snapshot() != base or session.revision != request.base_revision:

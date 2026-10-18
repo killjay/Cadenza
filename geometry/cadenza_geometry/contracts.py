@@ -69,6 +69,7 @@ class GeometryError(Exception):
     message: str
     feature_id: str | None = None
     detail: str | None = None
+    interference: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         Exception.__init__(self, self.message)
@@ -79,6 +80,7 @@ class GeometryError(Exception):
             "message": self.message,
             "feature_id": self.feature_id,
             "detail": self.detail,
+            "interference": self.interference,
         }
 
 

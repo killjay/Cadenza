@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useState } from "react";
 import { useStore } from "../lib/store";
 import { creationCommand, profileTargets, sourceNotice } from "../lib/featureCommands";
@@ -40,7 +41,7 @@ export function FeatureCreate({ ledger }: { ledger: Ledger }) {
             <option value="through">Through from opening</option><option value="blind">Blind depth</option>
           </select></label>}
           {capability.dimensions.filter(field => !(kind === "hole" && through && field === "depth")).map(field =>
-            <label key={field} className="block">{field} (mm)<input name={field} type="number" aria-label={`New ${kind} ${field} (mm)`}
+            <label key={field} className="block">{field} (mm)<NumericInput name={field} aria-label={`New ${kind} ${field} (mm)`}
               required min="0" step="any" defaultValue={10} className="mt-0.5 w-full rounded border border-hairline bg-canvas p-1" /></label>)}
           {kind === "extrude" ? <>
             <label className="block">Source profile<select name="target_feature" aria-label="Source profile" required defaultValue=""
@@ -54,7 +55,7 @@ export function FeatureCreate({ ledger }: { ledger: Ledger }) {
             <p className="text-10 text-ink-4">Source-local position (mm). Rotation: 0°, 0°, 0°.
               {kind === "hole" ? " Hole cuts along local -Z from its opening. Enter the opening height Z, including for through holes." : " Centered in X/Y; the base starts at Z."}</p>
             <div className="grid grid-cols-3 gap-1">{["x", "y", "z"].map(axis => <label key={axis} className="min-w-0">{axis}
-              <input name={axis} aria-label={`New ${kind} origin ${axis} (mm)`} type="number" required min={-1e9} max={1e9} step="any" defaultValue={kind === "hole" && axis === "z" ? "" : 0}
+              <NumericInput name={axis} aria-label={`New ${kind} origin ${axis} (mm)`} required min={-1e9} max={1e9} step="any" defaultValue={kind === "hole" && axis === "z" ? "" : 0}
                 className="mt-0.5 w-full rounded border border-hairline bg-canvas p-1" /></label>)}</div>
           </>}
           <button disabled={disabled || (kind === "extrude" && !profiles.length)} className="py-1 text-accent disabled:opacity-40">Preview feature</button>

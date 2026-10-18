@@ -99,3 +99,33 @@ def test_unattributed_instance_does_not_select_neighbor():
     built = service._compile(root)
     built.attribution = {i: value for i, value in built.attribution.items() if value[0] != "comp_a"}
     assert service.probe(root, SpatialQuery((0, 0, 10))) is None
+
+
+def test_source_context_returns_nested_rigid_transform_and_rejects_wrong_source():
+    from cadenza_geometry.contracts import GeometryError
+    root, part, documents = nested_design()
+    service = Build123dGeometryService()
+    for name, parent in (("comp_left", Location((200, 0, 0), (0, 0, 90))),
+                         ("comp_right", Location((-200, 0, 0)))):
+        query = dict(query_type="instance_context", component_path=[name, "comp_inner"], source_ledger_id=part.project_id)
+        result = service.run_probe_query(root, query, documents)
+        matrix = result["source_to_project"]
+        point = (20, 20, 20, 1)
+        actual = [sum(matrix[row * 4 + col] * point[col] for col in range(4)) for row in range(3)]
+        assert actual == pytest.approx(to_world(parent * Location((10, 0, 0), (0, 90, 0)), point[:3]))
+        assert matrix[12:] == [0, 0, 0, 1]
+        with pytest.raises(GeometryError):
+            service.run_probe_query(root, {**query, "source_ledger_id": "missing"}, documents)
+
+
+def test_source_context_uses_joint_solved_pose():
+    raw = boxes(joined=True).model_dump(mode="json")
+    source = Ledger.model_validate({"features": raw["assembly"]["parts"][0]["features"]})
+    raw["assembly"]["parts"] = []
+    for component in raw["assembly"]["components"]:
+        component["part_id"] = None
+        component["sub_assembly_id"] = source.project_id
+    root = Ledger.model_validate(raw)
+    result = Build123dGeometryService().run_probe_query(root, dict(query_type="instance_context",
+        component_path=["comp_b"], source_ledger_id=source.project_id), {source.project_id: source, root.project_id: root})
+    assert [result["source_to_project"][i] for i in (3, 7, 11)] == pytest.approx([0, 0, 10])

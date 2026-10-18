@@ -119,12 +119,17 @@ fixtures["client"].extend([
     dict(type="design.part.create", message_id="msg_part_create", base_revision=1, name="Spacer", operations=[
         dict(op="add_feature", kind="cylinder", name="Stock", operation="add", placement={}, parameters=dict(diameter=12, height=8))]),
     dict(type="design.part.prompt", message_id="msg_part_prompt", base_revision=1, name="Spacer", prompt="Create a spacer"),
+    dict(type="design.part.rename", message_id="msg_rename", base_revision=1, ledger_id=plate.project_id, name="Renamed Plate"),
     dict(type="design.part.view", message_id="msg_part_view", base_revision=1, ledger_id=plate.project_id),
+    dict(type="design.part.view", message_id="msg_context_view", base_revision=1, ledger_id=plate.project_id, component_path=["comp_plate"]),
 ])
 fixtures["server"].extend([
     PartCapabilitiesResponse(message_id="msg_part_cap", session_id="session_fixture").model_dump(mode="json"),
     dict(type="design.part.view_ready", message_id="msg_part_view", session_id="session_fixture", revision=1,
         ledger_id=plate.project_id, view_id="view_fixture", glb_url="/model.glb", step_url="/model.step", empty=False),
+    dict(type="design.part.view_ready", message_id="msg_context_view", session_id="session_fixture", revision=1,
+        ledger_id=plate.project_id, view_id="context_fixture", glb_url="/model.glb", step_url="/model.step", empty=False,
+        component_path=["comp_plate"], context_glb_url="/context.glb", source_to_project=[1,0,0,20,0,1,0,0,0,0,1,0,0,0,0,1]),
 ])
 from cadenza_contracts.assembly_commands import AssemblyCapabilitiesResponse, E2_OPERATIONS
 fixtures["client"].extend([
@@ -160,6 +165,27 @@ for target in [dict(kind="definition"), dict(kind="instance", component_id="comp
         ledger_id=plate.project_id, owner_path=[], scope="assembly_definition", target=target, prompt="Edit this assembly"))
 fixtures["server"].append(AssemblyPromptCapabilitiesResponse(message_id="e3cap_fixture", session_id="session_fixture",
     revision=1, ledger_id=plate.project_id, owner_path=[], available=True, vision_available=False).model_dump(mode="json"))
+from cadenza_contracts.assembly_commands import PLANAR_OPERATIONS
+face_ref = dict(ledger_id="prj_face", source_ledger_id="prj_face", feature_id="feat_box", feature_kind="box", operation="add", role="top_face")
+pick = dict(reference=face_ref, point=[0, 0, 10], normal=[0, 0, 1])
+fixtures["client"].extend([
+    dict(type="design.assembly.capabilities", message_id="face_cap", version=3, ledger_id="prj_owner", owner_path=[]),
+    dict(type="design.assembly.command", message_id="face_command", base_revision=0, ledger_id="prj_owner",
+        owner_path=[], scope="assembly_definition", operations=[dict(op="add_planar_attachment",
+            component_a="comp_a", component_b="comp_b", target_a=pick, target_b=pick)])])
+fixtures["server"].append(AssemblyCapabilitiesResponse(message_id="face_cap", session_id="session_fixture", revision=0,
+    ledger_id="prj_owner", version=3, owner_path=[], can_initialize=False, can_edit=True, reason=None,
+    operations=list(PLANAR_OPERATIONS)).model_dump(mode="json"))
+fixtures["server"].append(dict(type="design.preview", message_id="face_command", preview_id="preview_faces", base_revision=0,
+    summary="Selected face contact verified", changes=[], checks=[], attachment_contacts=[dict(definition_id="prj_owner",
+        joint_id="joint_faces", separation_mm=0, normal_residual=0, area_mm2=20, references_resolved=True, contact_verified=True)]))
+# Exercise the persisted joint union in a real serialized server ledger.
+face_owner = Ledger.model_validate(dict(project_id="prj_owner", assembly=dict(components=[
+    dict(id="comp_a", sub_assembly_id="prj_face"), dict(id="comp_b", sub_assembly_id="prj_face")], joints=[
+    dict(id="joint_faces", kind="rigid", component_a="comp_a", component_b="comp_b", twist_deg=0,
+        target_a=dict(mode="planar_face", reference=face_ref, uv=[0, 0]),
+        target_b=dict(mode="planar_face", reference=face_ref, uv=[0, 0]))])))
+fixtures["server"].append(dict(type="ledger.updated", message_id="face_ledger", revision=0, can_undo=False, store={face_owner.project_id:face_owner.model_dump(mode="json")}))
 print(json.dumps({
     "client": [parse_client_message(frame).model_dump(mode="json") for frame in fixtures["client"]],
     "server": [parse_server_message(frame).model_dump(mode="json") for frame in fixtures["server"]],

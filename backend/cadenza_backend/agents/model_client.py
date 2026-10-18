@@ -40,6 +40,7 @@ from cadenza_backend.config import ENV_FILES, get_settings
 from cadenza_backend.agents.core import AgentCard
 from cadenza_backend.tools import registry
 from cadenza_backend.session import SessionLogger
+from cadenza_contracts.errors import ErrorCode
 
 class AIError(RuntimeError):
     """Any model-call failure. Mapped to ErrorCode.AGENT_* by the agent layer."""
@@ -51,6 +52,42 @@ class AINotConfigured(AIError):
 
 class AIRefused(AIError):
     """The model declined (stop_reason == "refusal"). Not retryable as-is."""
+
+
+class AIProviderError(AIError):
+    """Provider transport/request failure, distinct from invalid model output."""
+
+    def __init__(self, message: str, code: ErrorCode = ErrorCode.AGENT_UNAVAILABLE):
+        super().__init__(message)
+        self.code = code
+
+
+def _provider_error(provider: str, exc: Exception) -> AIProviderError:
+    import anthropic
+    if isinstance(exc, (anthropic.APITimeoutError, httpx.TimeoutException)):
+        return AIProviderError(f"{provider} request timed out. Try again later.", ErrorCode.AGENT_TIMEOUT)
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status is not None:
+        return AIProviderError(f"{provider} rejected the API request (HTTP {status}). Check provider access, model configuration and diagnostics.")
+    return AIProviderError(f"Could not connect to {provider}. Check network access and diagnostics.")
+
+
+def _anthropic_schema(schema: dict, field: str) -> tuple[dict, bool]:
+    if not any(key in schema for key in ("oneOf", "anyOf", "allOf")):
+        return schema, False
+    # Keep local references rooted at /$defs while nesting the union.
+    wrapped = {"type": "object", "properties": {field: {
+        key: value for key, value in schema.items() if key != "$defs"}},
+        "required": [field], "additionalProperties": False}
+    if "$defs" in schema:
+        wrapped["$defs"] = schema["$defs"]
+    return wrapped, True
+
+
+def _unwrap_tool_input(value: Any, field: str) -> dict:
+    if not isinstance(value, dict) or set(value) != {field} or not isinstance(value[field], dict):
+        raise AIError("Model returned an invalid tool-input envelope")
+    return value[field]
 
 
 def _extract_json(text: str) -> Any:
@@ -121,10 +158,15 @@ class ModelClient:
             yield record
         except BaseException as exc:
             record["outcome"] = "interrupted_or_failed"
-            if self.before_anthropic_request:
-                record["error_type"] = type(exc).__name__
-                status = getattr(exc, "status_code", None)
-                if type(status) is int and 400 <= status <= 599: record["http_status"] = status
+            record["error_type"] = type(exc).__name__
+            status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            if type(status) is int and 400 <= status <= 599: record["http_status"] = status
+            cause = exc.__cause__
+            causes = []
+            while cause is not None and len(causes) < 4:
+                causes.append(type(cause).__name__)
+                cause = cause.__cause__
+            if causes: record["cause_types"] = causes
             raise
         finally:
             record["duration_ms"] = (monotonic() - started) * 1000
@@ -225,17 +267,10 @@ class ModelClient:
             }
             if effort:
                 kwargs["output_config"] = {"effort": effort}
-            wrapped_result = schema is not None and any(key in schema for key in ("oneOf", "anyOf", "allOf"))
+            wrapped_result = False
+            wrapped_tools: set[str] = set()
             if schema is not None:
-                # Anthropic requires an object at the tool-schema root. Keep local
-                # references rooted at /$defs while nesting the result union.
-                input_schema = schema
-                if wrapped_result:
-                    input_schema = {"type": "object", "properties": {"result": {
-                        key: value for key, value in schema.items() if key != "$defs"}},
-                        "required": ["result"], "additionalProperties": False}
-                    if "$defs" in schema:
-                        input_schema["$defs"] = schema["$defs"]
+                input_schema, wrapped_result = _anthropic_schema(schema, "result")
                 kwargs["tools"] = [
                     {
                         "name": "emit",
@@ -244,7 +279,9 @@ class ModelClient:
                     }
                 ]
                 for tool in tools:
-                    kwargs["tools"].append(tool.schema)
+                    tool_schema, wrapped = _anthropic_schema(tool.schema["input_schema"], "input")
+                    kwargs["tools"].append({**tool.schema, "input_schema": tool_schema})
+                    if wrapped: wrapped_tools.add(tool.name)
                 kwargs["tool_choice"] = {"type": "auto"}
 
             while True:
@@ -260,7 +297,7 @@ class ModelClient:
                     if self.logger:
                         self.logger.log("llm_response", provider="anthropic", stop_reason=msg.stop_reason, content=[c.model_dump() for c in msg.content])
                 except anthropic.APIError as e:
-                    raise AIError(f"Anthropic API error: {e}") from e
+                    raise _provider_error("anthropic", e) from e
 
                 # Opus 5 runs safety classifiers; a decline is an HTTP 200 with an empty
                 # or partial `content`, so this has to be checked before reading blocks.
@@ -284,18 +321,17 @@ class ModelClient:
                                         f"(got keys: {sorted(out)}). Raise max_tokens or simplify the request."
                                     )
                                 if wrapped_result:
-                                    if set(out) != {"result"} or not isinstance(out["result"], dict):
-                                        raise AIError("Model returned an invalid structured-result envelope")
-                                    return out["result"]
+                                    return _unwrap_tool_input(out, "result")
                                 return out
                             else:
                                 import json
                                 tool_impl = next((t for t in tools if t.name == block.name), None)
                                 if tool_impl:
                                     try:
-                                        result = await tool_impl.execute_async(context=context, **block.input)
+                                        inputs = _unwrap_tool_input(block.input, "input") if block.name in wrapped_tools else block.input
+                                        result = await tool_impl.execute_async(context=context, **inputs)
                                         if self.logger:
-                                            self.logger.log("tool_use", tool_name=block.name, inputs=block.input, result=result)
+                                            self.logger.log("tool_use", tool_name=block.name, inputs=inputs, result=result)
                                     except Exception as e:
                                         result = {"error": str(e)}
                                         if self.logger:
@@ -394,15 +430,13 @@ class ModelClient:
             while True:
                 if self.logger:
                     self.logger.log("llm_request", provider=provider, model=model, body=body)
-                async with self._request(provider, model) as record:
-                    r = await http.post(f"{base_url}/chat/completions", json=body, headers=headers)
-                    record["outcome"] = "response" if r.status_code == 200 else "http_error"
-                    if r.status_code == 200:
+                try:
+                    async with self._request(provider, model) as record:
+                        r = await http.post(f"{base_url}/chat/completions", json=body, headers=headers)
+                        r.raise_for_status()
                         record["usage"] = normalize_usage(provider, r.json().get("usage"))
-                if r.status_code != 200:
-                    if self.logger:
-                        self.logger.log("llm_error", provider=provider, status_code=r.status_code)
-                    raise AIError(f"{provider} HTTP {r.status_code}: {r.text[:400]}")
+                except httpx.HTTPError as exc:
+                    raise _provider_error(provider, exc) from exc
                 
                 choice = r.json()["choices"][0]
                 if choice.get("finish_reason") == "length":

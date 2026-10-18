@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useStore } from "../lib/store";
 import type { Ledger } from "../lib/types";
 
@@ -16,7 +17,7 @@ export function ParameterEditor({ ledger }: { ledger: Ledger }) {
           state.editNamedParameter(ledger.project_id, name, Number(new FormData(event.currentTarget).get("value")));
         }}>
         <label className="min-w-0 flex-1 break-words">{name} ({parameter.unit})
-          <input name="value" type="number" required min={-1e9} max={1e9} step="any"
+          <NumericInput name="value" required min={-1e9} max={1e9} step="any"
             aria-label={`${name} (${parameter.unit})`} defaultValue={parameter.value ?? ""} disabled={disabled}
             className="mt-0.5 w-full rounded border border-hairline bg-canvas p-1" />
         </label>

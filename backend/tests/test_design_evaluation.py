@@ -32,7 +32,8 @@ def anthropic_sdk(monkeypatch, response=None, failure=None, tokens=1000):
             raise anthropic.AuthenticationError("private provider detail", response=cast(Any, httpx.Response(401,
                 request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))), body={})
         schema = kwargs["tools"][0]["input_schema"]
-        assert not any(key in schema for key in ("oneOf", "allOf", "anyOf")), "Provider rejects root schema unions"
+        for tool in kwargs["tools"]:
+            assert not any(key in tool["input_schema"] for key in ("oneOf", "allOf", "anyOf")), "Provider rejects root schema unions"
         result = {"result": response} if "result" in schema.get("properties", {}) else response
         data = dict(type="tool_use", id="synthetic", name="unexpected" if failure == "extra" else "emit", input=result)
         block = SimpleNamespace(**data, model_dump=lambda: data)

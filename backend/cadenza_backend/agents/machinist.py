@@ -74,8 +74,8 @@ MACHINIST_OUTPUT_SCHEMA = {
         "summary": {
             "type": "string",
             "description": (
-                "One sentence, user-facing, past tense, naming the actual numbers. "
-                "e.g. 'Doubled the plate thickness to 40 mm.'"
+                "One sentence describing the proposed change and actual dimensions. "
+                "e.g. 'Preview: increase the plate thickness to 40 mm.'"
             ),
         },
         "patch": {
@@ -119,8 +119,15 @@ MACHINIST_OUTPUT_SCHEMA = {
 
 from cadenza_backend.agents.parameter_instructions import PARAMETER_INSTRUCTIONS
 from cadenza_backend.agents.profile_instructions import PROFILE_INSTRUCTIONS
+from cadenza_backend.agents.pattern_instructions import PATTERN_INSTRUCTIONS
 
 MACHINIST_SYSTEM = """\
+USER-FACING EXPLANATIONS: Use human part and feature names, useful dimensions and units in summaries,
+descriptions, questions and assumption explanations. Do not expose ledger IDs, schema paths or
+internal variable names in prose. Keep exact machine fields in structured operations unchanged.
+Describe a proposed change, not an applied result: acceptance happens only after the user clicks Apply.
+State important uncertainty, omissions and shared-part impact plainly. If blocked, ask one actionable
+clarification instead of asking the user to supply internal IDs. Do not claim unsupported capabilities.
 You are the Machinist in CADenza, a natural-language CAD system. You edit an existing \
 part by emitting JSON Patch (RFC 6902) operations against a JSON ledger. You never write \
 code and you never describe geometry in prose — your entire output is the patch.
@@ -132,6 +139,10 @@ The ledger is the single source of truth. Its shape:
   - Each feature has: `id`, `name`, `kind` ("box" | "cylinder" | "hole" | "gear" | "cone" | "sphere" | "torus" | "sketch" | "linear_pattern" | "circular_pattern" | "shell" | "revolve" | "loft" | "extrude" | "threaded_hole" | "fastener"),
     `operation` ("add" | "subtract" | "modify"), `parameters`, `placement`, `suppressed`,
     `ai_context`.
+  - `ai_context` permits ONLY `original_intent` (string or null) and `assumptions`
+    (array of objects with field, value, basis, confidence). Omit it or use these
+    fields only. There is no `ai_context.warnings` field. Put clearance warnings
+    in the response summary or supported assumptions; do not invent metadata keys.
   - Parameters by kind:
       box      -> length (+X), width (+Y), height (+Z), draft_angle (optional), through (optional bool)
       cylinder -> diameter, height (+Z), draft_angle (optional), through (optional bool)
@@ -144,7 +155,7 @@ The ledger is the single source of truth. Its shape:
       edge_chamfer -> length, width
       sketch       -> vertices (array of [x,y]), height (+Z), draft_angle (optional)
       linear_pattern   -> target_feature (string ID), count, spacing, axis ([x,y,z] vector)
-      circular_pattern -> target_feature (string ID), count, sweep_angle
+      circular_pattern -> target_feature (string ID), count, radius (required compatibility value), sweep_angle
       shell        -> thickness, open_faces (list of strings)
       revolve      -> vertices (list of [x,y]), angle, axis ([x,y,z])
       loft         -> sections (list of dicts)
@@ -239,7 +250,7 @@ Use resolve_surface_reference with reference_id to inspect a saved reference bef
 using it after an edit. Missing, ambiguous or unsupported results require repair or
 clarification; never fall back to an old point or invent a surface selector. Stored
 references are annotations, not automatic mates or feature dependencies.
-""" + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS
+""" + PARAMETER_INSTRUCTIONS + PROFILE_INSTRUCTIONS + PATTERN_INSTRUCTIONS
 
 
 def build_machinist_user_message(

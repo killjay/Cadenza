@@ -5,6 +5,18 @@ from cadenza_contracts.ledger import Ledger
 from cadenza_geometry.service import Build123dGeometryService
 
 
+def test_primitive_export_references_match_native_capture():
+    import json
+    import struct
+    service = Build123dGeometryService(); plate = plate_with_hole()
+    result = service.build(plate)
+    size = struct.unpack_from("<I", result.glb, 12)[0]
+    nodes = json.loads(result.glb[20:20 + size])["nodes"]
+    references = [n.get("extras", {}).get("surface_reference") for n in nodes]
+    for point, normal in [([20, 20, 20], [0, 0, 1]), ([5, 0, 10], [-1, 0, 0])]:
+        assert capture(service, plate, point, normal)["reference"] in references
+
+
 def capture(service, ledger, point, normal=None, documents=None):
     return service.run_probe_query(ledger, {"query_type": "capture_surface_reference", "point": point, "normal": normal}, documents)
 

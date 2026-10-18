@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDiscon
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 import sqlite3
-from cadenza_contracts.project import ProjectDocument
+from cadenza_contracts.project import ProjectDocument, document_version
 from cadenza_backend.projects import ProjectRepository, SaveConflict
 from cadenza_backend.surface_references import router as surface_reference_router
 from cadenza_backend.edit_preview import router as preview_router, pending, preview_parameter, decide_preview
@@ -33,10 +33,10 @@ from cadenza_backend.assembly_commands import capabilities as assembly_capabilit
 from cadenza_contracts.messages import AssemblyPrompt
 from cadenza_contracts.assembly_commands import AssemblyPromptCapabilitiesRequest
 from cadenza_backend.assembly_prompts import discovery as assembly_prompt_capabilities, handle_assembly_prompt
-from cadenza_backend.part_commands import create_part, prompt_part
+from cadenza_backend.part_commands import create_part, prompt_part, rename_part
 from cadenza_backend.part_views import router as part_view_router, view_part
 from cadenza_contracts.messages import PartPrompt
-from cadenza_contracts.part_commands import PartCreate, PartViewRequest, PartCapabilitiesRequest, PartCapabilitiesResponse
+from cadenza_contracts.part_commands import PartCreate, PartRename, PartViewRequest, PartCapabilitiesRequest, PartCapabilitiesResponse
 from cadenza_contracts.messages import DesignPrompt, PromptCapabilitiesRequest, PromptCapabilitiesResponse
 from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse, feature_capabilities
 from cadenza_contracts.feature_capabilities import PatternCapabilitiesRequest, PatternCapabilitiesResponse
@@ -162,7 +162,7 @@ async def save_project(session_id: str, request: SaveProject) -> dict:
         async with session.lock:
             if session.revision != request.base_revision:
                 raise HTTPException(409, "Design changed before saving. Retry with the current revision.")
-            document = ProjectDocument(name=request.name.strip() or "Untitled Part",
+            document = ProjectDocument(document_version=document_version([session.snapshot(), *session.history, *session.redo]), name=request.name.strip() or "Untitled Part",
                 primary_ledger_id=session.primary_ledger_id, ledgers=session.snapshot(),
                 history=session.history, redo=session.redo)
             try:
@@ -339,7 +339,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     continue
 
                 if isinstance(frame, (UserPrompt, SessionUndo, SessionRedo, LedgerCreate, ParameterEdit, NamedParameterEdit, SketchDimensionEdit, PreviewDecision,
-                                      DraftStart, DraftUpdate, DraftAction, DraftPrompt, DraftProposalDecision, DesignCommand, DesignPrompt, PartCreate, PartPrompt, PartViewRequest, AssemblyCommand, AssemblyPrompt)):
+                                      DraftStart, DraftUpdate, DraftAction, DraftPrompt, DraftProposalDecision, DesignCommand, DesignPrompt, PartCreate, PartRename, PartPrompt, PartViewRequest, AssemblyCommand, AssemblyPrompt)):
                     if session.lock.locked():
                         await emit(ErrorMessage(message_id=frame.message_id, code=ErrorCode.BUSY,
                             message="Please wait for the current action to finish."))
@@ -401,36 +401,38 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                         try:
                             await handle_assembly_prompt(session, frame, emit)
                         except CadenzaError as exc:
-                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message))
+                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
 
                 elif isinstance(frame, AssemblyCommand):
                     async with session.lock:
                         try:
                             await handle_assembly_command(session, frame, emit)
                         except CadenzaError as exc:
-                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message))
+                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
 
                 elif isinstance(frame, PartCapabilitiesRequest):
                     await emit(PartCapabilitiesResponse(message_id=frame.message_id, session_id=session.id))
 
-                elif isinstance(frame, (PartCreate, PartPrompt, PartViewRequest)):
+                elif isinstance(frame, (PartCreate, PartRename, PartPrompt, PartViewRequest)):
                     async with session.lock:
                         try:
                             if isinstance(frame, PartCreate):
                                 await create_part(session, frame, emit)
+                            elif isinstance(frame, PartRename):
+                                await rename_part(session, frame, emit)
                             elif isinstance(frame, PartPrompt):
                                 await prompt_part(session, frame, emit)
                             else:
                                 await view_part(session, frame, emit)
                         except CadenzaError as exc:
-                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message))
+                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
 
                 elif isinstance(frame, DesignPrompt):
                     async with session.lock:
                         try:
                             await handle_design_prompt(session, frame, emit)
                         except CadenzaError as exc:
-                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message))
+                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
 
                 elif isinstance(frame, LedgerRequest):
                     async with session.lock:
@@ -471,7 +473,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     try:
                         resolved = await probe(session.store.ledger, frame.point, all_ledgers={lid: s.ledger for lid, s in session.stores.items()})
                     except GeometryJobError as exc:
-                        await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message))
+                        await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
                         continue
                     await emit(
                         SpatialResult(
@@ -531,7 +533,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                             else:
                                 await handle_draft(session, frame, emit, emit_binary)
                         except CadenzaError as exc:
-                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, detail=exc.detail))
+                            await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, detail=exc.detail, interference=exc.interference))
                             if session.draft and (isinstance(frame, DraftStart) or session.draft.state.id == frame.draft_id):
                                 await emit(DraftState(message_id=frame.message_id, session_id=session.id, draft=session.draft.state))
                             elif not isinstance(frame, DraftStart):
@@ -552,7 +554,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                                 await decide_preview(session, frame, emit, emit_binary)
                         except CadenzaError as exc:
                             await emit(ErrorMessage(message_id=frame.message_id, code=exc.code,
-                                message=exc.message, detail=exc.detail))
+                                message=exc.message, detail=exc.detail, interference=exc.interference))
                             if isinstance(frame, PreviewDecision) and pending(session) is None:
                                 await emit(PreviewClosed(message_id=frame.message_id, preview_id=frame.preview_id))
                                 await replay_geometry(session, emit, emit_binary)
@@ -573,7 +575,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                             await handle_design_command(session, frame, emit)
                         except CadenzaError as exc:
                             await emit(ErrorMessage(message_id=frame.message_id, code=exc.code,
-                                message=exc.message, detail=exc.detail))
+                                message=exc.message, detail=exc.detail, interference=exc.interference))
                             if pending(session) is None:
                                 await replay_geometry(session, emit, emit_binary)
 

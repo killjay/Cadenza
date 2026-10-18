@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import { useState } from "react";
 import { useStore } from "../lib/store";
 import { edgeMarginOperations } from "../lib/sketchRelationships";
@@ -56,7 +57,7 @@ export function SketchRelationships({ entityId }: { entityId: string }) {
       <label>Outer edge<select aria-label="Margin edge" className={field} name="edge" disabled={disabled}>
         {(["left", "right", "bottom", "top"] as const).map(edge => <option key={edge}>{edge}</option>)}
       </select></label>
-      <label>Distance (mm)<input aria-label="Centre-to-edge distance" className={field} name="distance" type="number" step="any" min={0.000001} max={1e6} defaultValue={15} required disabled={disabled} /></label>
+      <label>Distance (mm)<NumericInput aria-label="Centre-to-edge distance" className={field} name="distance" step="any" min={0.000001} max={1e6} defaultValue={15} required disabled={disabled} /></label>
       <label>New margin driver<input aria-label="Margin driver name" className={field} name="name" pattern="[a-z][a-z0-9_]{0,47}" maxLength={48} required disabled={disabled} /></label>
       <button className={button} disabled={disabled}>Keep centre distance</button>
     </form>}

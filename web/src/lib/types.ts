@@ -2,7 +2,11 @@
 
 export * from "@cadenza/shared";
 
-import type { Vec3, Target } from "@cadenza/shared";
+import type { Vec3, Target, SourceFaceContext, PlanarPick, AssemblyCapabilitiesResponse } from "@cadenza/shared";
+
+export interface FeaturePromptTarget {
+  ledgerId: string; featureId?: string; face?: SourceFaceContext; revision?: number;
+}
 
 export interface SurfaceCheck {
   status: "resolved" | "missing" | "ambiguous" | "unsupported" | "error";
@@ -12,8 +16,22 @@ export interface SurfaceCheck {
 
 export type SelectionMode = "face" | "side" | "feature" | "part";
 
+export interface SourceSelectionIdentity {
+  ledgerId: string;
+  revision: number;
+  generation: number;
+  componentPath: string[] | null;
+}
+
+export interface SourceGeometryContext {
+  glb: ArrayBuffer;
+  sourceToProject: number[];
+  componentPath: string[];
+}
+
 /** What a click on the model resolves to. Produced by viewport/pick.ts. */
 export interface FaceSelection {
+  source?: SourceSelectionIdentity;
   saved_reference?: Target["saved_reference"];
   surface_reference?: Target["surface_reference"];
   selection_error?: string;
@@ -38,4 +56,11 @@ export interface FaceInfo {
   centerOfMass: Vec3;
   normal: Vec3 | null;
   radius: number | null;
+}
+
+export interface FaceAttachmentDraft {
+  sessionId: string; revision: number; ownerId: string; ownerPath: string[];
+  capability: AssemblyCapabilitiesResponse; componentA: string; componentB: string;
+  jointId?: string; step: "a" | "b"; a?: PlanarPick; b?: PlanarPick;
+  returnSource: string | null; returnPath: string[] | null;
 }

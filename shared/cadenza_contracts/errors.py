@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Annotated
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Interference(BaseModel):
+    """Checked component pair, relative to the definition that failed to build."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    definition_id: str = Field(min_length=1, max_length=200)
+    component_a: list[Annotated[str, Field(pattern=r"^comp_[a-z0-9_]{1,60}$")]] = Field(min_length=1, max_length=8)
+    component_b: list[Annotated[str, Field(pattern=r"^comp_[a-z0-9_]{1,60}$")]] = Field(min_length=1, max_length=8)
+    volume_mm3: float = Field(gt=0, allow_inf_nan=False)
 
 
 class ErrorCode(str, Enum):
@@ -56,6 +67,7 @@ class CadenzaError(Exception):
         detail: str | None = None,
         recoverable: bool = True,
         message_id: str | None = None,
+        interference: Interference | dict | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -63,3 +75,4 @@ class CadenzaError(Exception):
         self.detail = detail
         self.recoverable = recoverable
         self.message_id = message_id
+        self.interference = Interference.model_validate(interference) if interference is not None else None

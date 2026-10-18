@@ -22,3 +22,32 @@ def test_prompt_contract_roundtrip_and_discovery():
     assert parse_client_message(dict(type="design.prompt.capabilities", message_id="msg_cap"))
     assert parse_server_message(dict(type="design.prompt.capabilities", message_id="msg_cap",
         session_id="ses_test", version=1, scope="source", max_operations=32))
+
+
+@pytest.mark.parametrize("bad", [None, "source", "feature", "nan", "zero", "extra", "string", "path", "mode"])
+def test_source_face_context_is_strict_and_source_local(bad):
+    face: dict = dict(mode="edit_feature", point=[0, 0, 15], normal=[0, 0, 1], component_path=["comp_base"],
+        reference=dict(ledger_id="prj_part", source_ledger_id="prj_part", feature_id="feat_base",
+            feature_kind="box", operation="add", role="top_face"))
+    raw = {**BASE, "feature_id": "feat_base", "face": face}
+    if bad == "source": raw["ledger_id"] = "prj_other"
+    if bad == "feature": raw["feature_id"] = "feat_other"
+    if bad == "nan": face["point"][0] = float("nan")
+    if bad == "zero": face["normal"] = [0, 0, 0]
+    if bad == "extra": face["face_hash"] = 42
+    if bad == "string": face["point"][0] = "0"
+    if bad == "path": face["component_path"] = ["comp_a"] * 9
+    if bad == "mode": face["mode"] = "add_on_face"
+    if bad:
+        with pytest.raises(ValidationError): DesignPrompt.model_validate(raw)
+    else:
+        request = DesignPrompt.model_validate(raw)
+        assert parse_client_message(request.model_dump_json()) == request
+
+
+def test_interference_roundtrip_keeps_legacy_error_detail():
+    from cadenza_contracts.messages import ErrorMessage
+    error = ErrorMessage.model_validate(dict(code="GEOMETRY_KERNEL_FAILURE", message="Overlap", detail="native detail",
+        interference=dict(definition_id="prj_inner", component_a=["comp_a"], component_b=["comp_b"], volume_mm3=12.0)))
+    assert parse_server_message(error.model_dump_json()) == error
+    assert error.detail == "native detail"

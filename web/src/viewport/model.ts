@@ -18,6 +18,7 @@ const loader = new GLTFLoader();
 
 export interface LoadedModel {
   root: THREE.Object3D;
+  colorMode: "part" | "instances" | "imported";
   /**
    * Bounds in the GLB's OWN frame — glTF Y-up, not ledger coordinates. The
    * frame the camera and the ground plane care about only exists once the root
@@ -40,6 +41,53 @@ export function disposeSubtree(root: THREE.Object3D): void {
   root.removeFromParent();
 }
 
+/** Tint only implicated accepted occurrences; restore materials when feedback clears. */
+export function highlightInterference(root: THREE.Object3D, paths: string[], activePath?: string): void {
+  root.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const path = activePath ?? mesh.userData.component_id;
+    const hit = typeof path === "string" && paths.some(p => path === p || path.startsWith(p + "/"));
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const mat = material as THREE.MeshStandardMaterial;
+      if (!mat.color) continue;
+      if (hit) {
+        mat.userData.interferenceOriginal ??= { color: mat.color.getHex(), opacity: mat.opacity };
+        mat.color.setHex(0xf08c40); mat.opacity = 0.8;
+      } else if (mat.userData.interferenceOriginal) {
+        mat.color.setHex(mat.userData.interferenceOriginal.color);
+        mat.opacity = mat.userData.interferenceOriginal.opacity;
+        delete mat.userData.interferenceOriginal;
+      }
+    }
+  });
+}
+
+/** Context is visual only, outside the active model/pick/edge roots. Matrix is row-major, Z-up/mm. */
+export function assemblyContext(model: LoadedModel, sourceToProject: number[], activePath: string[]): THREE.Group {
+  const group = new THREE.Group();
+  group.name = "assembly-context";
+  group.matrix.fromArray(sourceToProject).transpose().invert();
+  group.matrixAutoUpdate = false;
+  const conversion = new THREE.Group();
+  conversion.rotation.x = Math.PI / 2; // glTF Y-up -> project Z-up, exactly once.
+  conversion.add(model.root);
+  group.add(conversion);
+  model.root.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.visible = mesh.userData.component_id !== activePath.join("/");
+    mesh.castShadow = mesh.receiveShadow = false;
+    mesh.raycast = () => {}; // Even a future scene-wide raycast cannot select context.
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      material.transparent = true;
+      material.opacity = 0.16;
+      material.depthWrite = false;
+    }
+  });
+  return group;
+}
+
 function stringToColor(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -51,7 +99,7 @@ function stringToColor(str: string): number {
   return new THREE.Color().setHSL(h / 360, s / 100, l / 100).getHex();
 }
 
-export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
+export function parseGlb(data: ArrayBuffer, policy: "source" | "assembly" | "imported" = "assembly"): Promise<LoadedModel> {
   const t0 = performance.now();
   return new Promise((resolve, reject) => {
     loader.parse(
@@ -60,6 +108,7 @@ export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
       (gltf) => {
         const root = gltf.scene;
         let triangleCount = 0;
+        let hasInstances = false;
 
         root.traverse((o) => {
           const mesh = o as THREE.Mesh;
@@ -75,16 +124,18 @@ export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
           for (const m of mats) {
             const std = (m as THREE.MeshStandardMaterial).clone();
             std.side = THREE.FrontSide;
-            std.envMapIntensity = 1.0;
-            if (std.metalness !== undefined && std.metalness < 0.05) std.metalness = 0.25;
-            if (std.roughness !== undefined && std.roughness > 0.9) std.roughness = 0.45;
+            if (policy !== "imported") {
+              std.envMapIntensity = 1.0;
+              if (std.metalness !== undefined && std.metalness < 0.05) std.metalness = 0.25;
+              if (std.roughness !== undefined && std.roughness > 0.9) std.roughness = 0.45;
+            }
 
-            // Assign a unique color per component (or feature), unless it's a hole or unattributed
+            // Colour describes an attributed occurrence, never an individual modelling feature.
             const componentId = mesh.userData?.component_id as string | undefined;
-            const featureId = mesh.userData?.feature_id as string | undefined;
-            const colorSource = componentId || featureId;
-            if (colorSource && !colorSource.includes("_hole_") && colorSource !== "_unattributed") {
-              std.color.setHex(stringToColor(colorSource));
+            if (policy !== "imported") {
+              const occurrence = policy === "assembly" && typeof componentId === "string" && componentId !== "_unattributed" ? componentId : "";
+              hasInstances ||= !!occurrence;
+              std.color.setHex(occurrence ? stringToColor(occurrence) : 0xb8c4ce);
             }
             newMats.push(std);
           }
@@ -93,7 +144,8 @@ export function parseGlb(data: ArrayBuffer): Promise<LoadedModel> {
 
         root.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(root);
-        resolve({ root, box, triangleCount, parseMs: performance.now() - t0 });
+        resolve({ root, box, triangleCount, parseMs: performance.now() - t0,
+          colorMode: policy === "imported" ? "imported" : hasInstances ? "instances" : "part" });
       },
       (err) => reject(err instanceof Error ? err : new Error(String(err))),
     );
