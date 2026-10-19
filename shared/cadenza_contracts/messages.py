@@ -560,6 +560,14 @@ class AttachmentContact(_Msg):
     contact_verified: Literal[True]
 
 
+class IndependenceResult(_Msg):
+    component_path: OccurrencePath
+    old_source_id: str = Field(min_length=1, max_length=200)
+    new_source_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=100)
+    copied_assemblies: int = Field(ge=0, le=8)
+
+
 class PreviewReady(_Msg):
     type: Literal["design.preview"] = "design.preview"
     message_id: str
@@ -570,6 +578,7 @@ class PreviewReady(_Msg):
     changes: list[PreviewChange]
     checks: list[str]
     attachment_contacts: list[AttachmentContact] = Field(default_factory=list, max_length=4096)
+    independence: IndependenceResult | None = None
     assumptions: list[Assumption] = Field(default_factory=list)
     glb_url: str | None = None
     step_url: str | None = None

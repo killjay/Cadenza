@@ -186,6 +186,17 @@ face_owner = Ledger.model_validate(dict(project_id="prj_owner", assembly=dict(co
         target_a=dict(mode="planar_face", reference=face_ref, uv=[0, 0]),
         target_b=dict(mode="planar_face", reference=face_ref, uv=[0, 0]))])))
 fixtures["server"].append(dict(type="ledger.updated", message_id="face_ledger", revision=0, can_undo=False, store={face_owner.project_id:face_owner.model_dump(mode="json")}))
+from cadenza_contracts.assembly_commands import INDEPENDENCE_OPERATIONS
+fixtures["client"].extend([
+    dict(type="design.assembly.capabilities", message_id="independent_cap", version=4, ledger_id="prj_owner", owner_path=[]),
+    dict(type="design.assembly.command", message_id="independent", base_revision=0, ledger_id="prj_owner", owner_path=[],
+        scope="occurrence", operations=[dict(op="make_independent", component_id="comp_a", name="Custom part")])])
+fixtures["server"].append(AssemblyCapabilitiesResponse(message_id="independent_cap", session_id="session_fixture", revision=0,
+    ledger_id="prj_owner", version=4, owner_path=[], can_initialize=False, can_edit=True, reason=None,
+    operations=list(INDEPENDENCE_OPERATIONS)).model_dump(mode="json"))
+fixtures["server"].append(dict(type="design.preview", message_id="independent", preview_id="preview_independent", base_revision=0,
+    summary="One independent part", changes=[], checks=[], independence=dict(component_path=["comp_a"], old_source_id="prj_face",
+        new_source_id="prj_copy", name="Custom part", copied_assemblies=0)))
 print(json.dumps({
     "client": [parse_client_message(frame).model_dump(mode="json") for frame in fixtures["client"]],
     "server": [parse_server_message(frame).model_dump(mode="json") for frame in fixtures["server"]],

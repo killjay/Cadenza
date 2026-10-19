@@ -12,6 +12,9 @@ export function EditPreview() {
   const disabled = state.busy || state.connection !== "open";
   return <section aria-label="Edit preview" className="flex max-h-[45%] shrink-0 flex-col border-t border-accent p-2.5 text-11">
     <h2 className="font-semibold text-accent">Preview — not applied</h2>
+    {preview.independence && <p className="my-2">Make this instance independent as <strong>{preview.independence.name}</strong>.
+      Original source {state.ledgers[preview.independence.old_source_id]?.metadata.name || "part"} remains available.
+      {" "}{preview.independence.copied_assemblies} parent definition(s) copied. Position and attachments retained.</p>}
     <div className="mt-2 flex shrink-0 flex-wrap gap-2 border-b border-hairline pb-2">
       <button className="rounded bg-accent px-3 py-2 text-canvas disabled:opacity-40" disabled={disabled || state.previewLoading || state.previewRendering || !!state.previewError}
         onClick={() => state.decidePreview("apply")}>Apply changes</button>

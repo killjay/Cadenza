@@ -6,6 +6,7 @@ import type { AssemblyOperation } from "../lib/types";
 import { PlacementFields, readPlacement, readName, inputClass, buttonClass } from "./AssemblyFields";
 import { AssemblyJointEditor } from "./AssemblyJointEditor";
 import { SubassemblyCreate } from "./SubassemblyCreate";
+import { MakeIndependent } from "./MakeIndependent";
 
 export function AssemblyEditor({ showTree = true }: { showTree?: boolean }) {
   const state = useStore();
@@ -74,6 +75,7 @@ export function AssemblyEditor({ showTree = true }: { showTree?: boolean }) {
         <button className={`ml-2 ${buttonClass}`} disabled={unavailable || !state.partCapabilities}
           onClick={() => state.selectSource(selected.source!.project_id, false, selected.path.split("/"))}>Edit shared source</button></p>
         : <p>Source geometry editing is unavailable for this definition.</p>}
+      {selected.source && !selected.source.assembly && <MakeIndependent path={selected.path} />}
       {direct && <>
         <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget);
           state.startAssemblyPrompt({ kind: "instance", component_id: component.id,

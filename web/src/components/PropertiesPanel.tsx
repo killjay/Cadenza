@@ -7,18 +7,24 @@ import { ParameterEditor } from "./ParameterEditor";
 import { SketchEditor } from "./SketchEditor";
 import { SavedSurfaces } from "./SavedSurfaces";
 import { SourceRename } from "./SourceRename";
+import { MakeIndependent, IndependentResult } from "./MakeIndependent";
 import { partUsage } from "../lib/assembly";
+import { OccurrenceProperties } from "./OccurrenceProperties";
 
 export interface Inspection { ledgerId: string; featureId?: string; }
 
 export function PropertiesPanel({ inspection, assembly }: { inspection: Inspection | null; assembly: boolean }) {
   const state = useStore();
-  const { uses } = partUsage(state.ledgers, state.primaryLedgerId ?? "");
+  const { uses, rows } = partUsage(state.ledgers, state.primaryLedgerId ?? "");
+  const occurrence = rows.find(row => row.path === state.selectedSourcePath?.join("/"));
   const blocked = state.busy || !!state.preview || !!state.draft || state.draftStarting
     || state.connection !== "open" || state.model?.source === "local" || state.sourceLoading;
   const promptDisabled = blocked || !!state.faceAttachment || !state.featurePromptAvailable || !state.capabilities || !state.agentsAvailable;
   if (state.faceAttachment) return <p className="p-3 text-11">Finish or cancel Attach faces in the viewport before editing this part.</p>;
   return <div className="min-h-0 flex-1 overflow-y-auto p-3 text-11" aria-label="Model properties">
+    <IndependentResult />
+    {!assembly && occurrence && inspection?.ledgerId === occurrence.source?.project_id
+      && <OccurrenceProperties path={occurrence.path} />}
     {!!state.selections.length && <details open className="mb-3 rounded border border-hairline p-2">
       <summary>Selected surface</summary>
       {state.selections.map((selection, index) => <div key={index} className="mt-2 break-words">
@@ -46,15 +52,22 @@ export function PropertiesPanel({ inspection, assembly }: { inspection: Inspecti
     {!assembly && !inspection && <p className="text-ink-3">Choose a part or feature in the model tree to inspect it.</p>}
     {Object.values(state.ledgers).filter(ledger => !ledger.assembly).map(ledger => <section
       key={`${state.sessionId}:${ledger.project_id}`} hidden={assembly || inspection?.ledgerId !== ledger.project_id}>
-      <h2 className="mb-2 break-words text-13 font-semibold">{ledger.metadata.name || "Untitled part"}</h2>
+      <h2 className="mb-2 break-words text-13 font-semibold">Geometry: {ledger.metadata.name || "Untitled part"}</h2>
       {state.ledgers[state.primaryLedgerId ?? ""]?.assembly && <p className="mb-2 text-ink-3">
         {(uses.get(ledger.project_id) ?? 0) > 0 ? `Used in ${uses.get(ledger.project_id)} placed instance(s).` : "Not placed in the project assembly."}
       </p>}
-      <p className="mb-2 text-ink-3">Editing this source updates its reused instances. Inspecting a feature does not change the Assistant target.</p>
+      <p className="mb-2 text-ink-3">{(uses.get(ledger.project_id) ?? 0) > 1
+        ? "Shared geometry: edits affect every listed use. Choose Make independent to edit only the selected part."
+        : "Geometry edits affect this part and any future uses of this source."}</p>
+      {(uses.get(ledger.project_id) ?? 0) > 1 && <details className="mb-2"><summary>Parts sharing this geometry ({uses.get(ledger.project_id)})</summary>
+        <ul>{rows.filter(row => row.source?.project_id === ledger.project_id).map(row => <li key={row.path}>{row.labels.join(" / ")}</li>)}</ul>
+      </details>}
+      {state.selectedSourceId === ledger.project_id && state.ledgers[state.primaryLedgerId ?? ""]?.assembly
+        && <MakeIndependent path={state.selectedSourcePath?.join("/") ?? null} />}
       <fieldset disabled={state.sourceLoading}>
         <div hidden={!!inspection?.featureId}>
           {state.partCapabilities?.rename_source && ledger.features.length > 0 && <details className="mb-2">
-            <summary>Part name</summary><SourceRename key={`${state.sessionRevision}:${ledger.project_id}`} source={ledger} disabled={blocked} />
+            <summary>Source name (all uses)</summary><SourceRename key={`${state.sessionRevision}:${ledger.project_id}`} source={ledger} disabled={blocked} />
           </details>}
           <ParameterEditor ledger={ledger} />
           <button disabled={promptDisabled} className="my-2 text-accent disabled:opacity-40"

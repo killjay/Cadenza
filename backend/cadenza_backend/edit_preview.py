@@ -214,7 +214,8 @@ async def verify_edit(before: dict[str, Ledger], after: dict[str, Ledger], promp
 
 async def publish_preview(session, ledgers, outcome, message_id, emit, *, summary="", patch=None, prompt="", assumptions=None,
                           draft_id=None, draft_revision=None, verification_scope=None, display_ledger_id=None,
-                          prompt_scope: Literal["source", "assembly"] = "source", context_path=None):
+                          prompt_scope: Literal["source", "assembly"] = "source", context_path=None,
+                          independence=None, extra_checks=None):
     if not outcome.ok or outcome.stub:
         raise CadenzaError(ErrorCode.GEOMETRY_KERNEL_FAILURE, "A real successful geometry build is required for preview.")
     base = session.snapshot()
@@ -222,6 +223,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     if not changes:
         raise CadenzaError(ErrorCode.PATCH_INVALID, "The candidate contains no changes.")
     checks = await verify_edit(base, ledgers, prompt, verification_scope=verification_scope, prompt_scope=prompt_scope)
+    checks.extend(extra_checks or [])
     from cadenza_contracts.messages import AttachmentContact
     from cadenza_backend.assembly_commands import source_uses
     attachment_contacts = []
@@ -302,7 +304,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     preview_id = uuid4().hex
     url = f"/api/sessions/{session.id}/previews/{preview_id}"
     message = PreviewReady(message_id=message_id, preview_id=preview_id, base_revision=session.revision,
-        summary=summary, prompt=prompt, changes=changes, checks=checks, attachment_contacts=attachment_contacts, assumptions=assumptions or [],
+        summary=summary, prompt=prompt, changes=changes, checks=checks, attachment_contacts=attachment_contacts, independence=independence, assumptions=assumptions or [],
         glb_url=f"{url}/model.glb" if outcome.glb else None,
         step_url=f"{url}/model.step" if outcome.step else None, empty=outcome.empty,
         draft_id=draft_id, draft_revision=draft_revision, display_ledger_id=display_ledger_id,
@@ -315,7 +317,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     event("preview.published", preview_id=preview_id, originating_message_id=message_id,
         display_ledger_id=display_ledger_id, context_component_path=context_path,
         candidate=snapshot(ledgers), changes=[c.model_dump(mode="json") for c in changes],
-        checks=checks, attachment_contacts=[c.model_dump(mode="json") for c in attachment_contacts], volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
+        checks=checks, attachment_contacts=[c.model_dump(mode="json") for c in attachment_contacts], independence=independence, volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
     await emit(message)
 
 

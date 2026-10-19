@@ -46,26 +46,25 @@ export function ModelTree({ inspection, inspect, inspectAssembly }: {
     {rows.filter(row => row.ownerPath.join("/") === parent).map(row => {
       const active = state.selectedSourceId === row.source?.project_id
         && (!state.partCapabilities?.source_context || state.selectedSourcePath?.join("/") === row.path);
-      const button = <button disabled={blocked || !!state.selectedSourceId} aria-pressed={state.assemblySelection === row.path}
+      const button = <button disabled={blocked || (!row.source?.assembly && !!row.source && !state.partCapabilities)}
+        aria-label={`Select ${row.component.name || "part"}`} aria-pressed={row.source?.assembly ? state.assemblySelection === row.path : active}
         className="min-w-0 flex-1 break-words rounded px-2 py-1 text-left aria-pressed:bg-wash-2 aria-pressed:text-accent disabled:opacity-40"
-        onClick={() => inspectAssembly(row.path)}>{row.component.name || "Instance"}</button>;
+        onClick={() => row.source && !row.source.assembly
+          ? state.selectSource(active ? null : row.source.project_id, false, row.path.split("/"))
+          : inspectAssembly(row.path)}>{row.component.name || "Instance"}</button>;
       return <li key={row.path}>{row.source?.assembly ? <details>
         <summary className="cursor-pointer break-words">{row.component.name || "Subassembly"}</summary>
         <div className="flex">{button}</div>{branches(row.path)}
-      </details> : <div className="flex items-center gap-1">{button}
-        {row.source && <button disabled={blocked || !state.partCapabilities} className="text-accent disabled:opacity-40"
-          aria-label={`View part ${row.component.name}`} aria-pressed={active}
-          onClick={() => state.selectSource(active ? null : row.source!.project_id, false, row.path.split("/"))}>View</button>}
-      </div>}</li>;
+      </details> : <div className="flex items-center gap-1">{button}</div>}</li>;
     })}
   </ul>;
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="flex items-center justify-between gap-2 border-b border-hairline p-2 text-12">
-      <button className="min-w-0 break-words text-left font-semibold" disabled={blocked || (!!primary?.assembly && !!state.selectedSourceId)}
+      <button className="min-w-0 break-words text-left font-semibold" disabled={blocked}
         onClick={() => {
           if (!primary) return;
           if (!primary.assembly) { inspect({ ledgerId: primary.project_id }); return; }
-          if (state.assemblyOwnerId !== primary.project_id) {
+          if (!state.selectedSourceId && state.assemblyOwnerId !== primary.project_id) {
             state.editAssemblyOwner(primary.project_id, []);
             if (useStore.getState().assemblyOwnerId !== primary.project_id) return;
           }
@@ -80,7 +79,9 @@ export function ModelTree({ inspection, inspect, inspectAssembly }: {
         {branches("")}
         {state.selectedSourceId && <div className="my-2 border-t border-hairline pt-2">
           <button disabled={blocked} className="text-accent disabled:opacity-40" onClick={() => state.selectSource(null)}>Project view</button>
-          <p>Select faces to inspect this part. Use feature controls to edit; changes affect every use of this part.</p>
+          {state.selectedSourcePath && <button disabled={blocked} className="ml-3 text-accent disabled:opacity-40"
+            onClick={() => inspectAssembly(state.selectedSourcePath!.join("/"))}>Placement and attachments</button>}
+          <p>Select faces or features to edit. Properties shows whether geometry is shared.</p>
           {state.sourceView?.context_glb_url && !state.sourceContextWarning && <label className="mt-1 block">
             <input type="checkbox" checked={state.showContext} onChange={state.toggleContext} /> Show faded assembly</label>}
         </div>}
@@ -91,7 +92,7 @@ export function ModelTree({ inspection, inspect, inspectAssembly }: {
           {unplaced.map(source => <div key={source.project_id} className="my-2 space-y-1">
             <button disabled={blocked || !state.partCapabilities} aria-pressed={state.selectedSourceId === source.project_id}
               className="block break-words text-left text-accent disabled:opacity-40"
-              onClick={() => state.selectSource(state.selectedSourceId === source.project_id ? null : source.project_id)}>View {source.metadata.name}</button>
+              onClick={() => state.selectSource(state.selectedSourceId === source.project_id ? null : source.project_id)}>{source.metadata.name}</button>
             <button disabled={blocked} className="text-accent disabled:opacity-40" aria-label={`Add ${source.metadata.name} to assembly`}
               onClick={() => openPicker({ ownerId: primary.project_id, ownerPath: [], sourceId: source.project_id })}>+ Add to assembly</button>
           </div>)}

@@ -15,6 +15,7 @@ OPERATIONS = ("initialize_assembly", "add_instance", "duplicate_instance", "set_
 MAX_COMPONENTS, MAX_LEAVES, MAX_DEPTH = 32, 128, 8
 E2_OPERATIONS = (*OPERATIONS, "add_rigid_joint", "remove_joint", "create_subassembly")
 PLANAR_OPERATIONS = (*E2_OPERATIONS, "add_planar_attachment")
+INDEPENDENCE_OPERATIONS = (*PLANAR_OPERATIONS, "make_independent")
 
 
 class StrictModel(BaseModel):
@@ -121,6 +122,12 @@ class RemoveJoint(StrictModel):
     joint_id: str = Field(pattern=r"^joint_[a-z0-9_]{1,60}$")
 
 
+class MakeIndependent(StrictModel):
+    op: Literal["make_independent"]
+    component_id: ComponentId
+    name: Name
+
+
 class SubassemblyChild(StrictModel):
     source_ledger_id: str = Field(min_length=1, max_length=200)
     name: Name
@@ -140,7 +147,7 @@ CoordinateAssemblyOperation = Annotated[Union[InitializeAssembly, AddInstance, D
     CreateSubassembly], Field(discriminator="op")]
 
 
-AssemblyOperation = Annotated[Union[CoordinateAssemblyOperation, AddPlanarAttachment], Field(discriminator="op")]
+AssemblyOperation = Annotated[Union[CoordinateAssemblyOperation, AddPlanarAttachment, MakeIndependent], Field(discriminator="op")]
 
 
 class AssemblyCommand(StrictModel):
@@ -148,9 +155,16 @@ class AssemblyCommand(StrictModel):
     message_id: str = Field(min_length=1, max_length=200)
     base_revision: int = Field(ge=0)
     ledger_id: str = Field(min_length=1, max_length=200)
-    scope: Literal["assembly_definition"]
+    scope: Literal["assembly_definition", "occurrence"]
     owner_path: list[ComponentId] = Field(default_factory=list, max_length=8)
     operations: list[AssemblyOperation] = Field(min_length=1, max_length=16)
+
+    @model_validator(mode="after")
+    def occurrence_scope(self):
+        independent = any(isinstance(op, MakeIndependent) for op in self.operations)
+        if independent != (self.scope == "occurrence") or (independent and len(self.operations) != 1):
+            raise ValueError("Make independent requires occurrence scope and one operation; other commands require assembly_definition scope.")
+        return self
 
 
 class DefinitionTarget(StrictModel):
@@ -217,7 +231,7 @@ class AssemblyPromptCapabilitiesResponse(StrictModel):
 class AssemblyCapabilitiesRequest(StrictModel):
     type: Literal["design.assembly.capabilities"] = "design.assembly.capabilities"
     message_id: str = Field(min_length=1, max_length=200)
-    version: Literal[1, 2, 3] = 1
+    version: Literal[1, 2, 3, 4] = 1
     ledger_id: str | None = Field(default=None, min_length=1, max_length=200)
     owner_path: list[ComponentId] = Field(default_factory=list, max_length=8)
 
@@ -244,7 +258,7 @@ class AssemblyCapabilitiesResponse(StrictModel):
     session_id: str
     revision: int
     ledger_id: str
-    version: Literal[1, 2, 3] = 1
+    version: Literal[1, 2, 3, 4] = 1
     owner_path: list[ComponentId] = Field(default_factory=list, max_length=8)
     can_initialize: bool
     can_edit: bool
@@ -259,7 +273,7 @@ class AssemblyCapabilitiesResponse(StrictModel):
 
     @model_validator(mode="after")
     def version_scope(self):
-        expected = OPERATIONS if self.version == 1 else E2_OPERATIONS if self.version == 2 else PLANAR_OPERATIONS
+        expected = OPERATIONS if self.version == 1 else E2_OPERATIONS if self.version == 2 else PLANAR_OPERATIONS if self.version == 3 else INDEPENDENCE_OPERATIONS
         if self.operations != list(expected) or (self.version == 1 and self.owner_path):
             raise ValueError("Capability operations and owner context must match the declared version.")
         if self.version >= 2 and "owner_path" not in self.model_fields_set:

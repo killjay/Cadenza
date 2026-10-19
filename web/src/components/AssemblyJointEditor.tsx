@@ -44,7 +44,7 @@ export function AssemblyJointEditor({ assembly, disabled, run, prompt }: { assem
   const state = useStore();
   const [a, setA] = useState(assembly.components[0]?.id ?? "");
   const [b, setB] = useState(assembly.components[1]?.id ?? "");
-  const faceEnabled = state.assemblyCapabilities?.version === 3 && !!state.partCapabilities?.source_context;
+  const faceEnabled = (state.assemblyCapabilities?.version ?? 1) >= 3 && !!state.partCapabilities?.source_context;
   const supported = assembly.components.filter(c => c.sub_assembly_id && state.ledgers[c.sub_assembly_id] && !state.ledgers[c.sub_assembly_id].assembly);
   const name = (id: string) => assembly.components.find(c => c.id === id)?.name || id;
   return <details className="mt-2"><summary>Rigid attachments ({assembly.joints.length})</summary>

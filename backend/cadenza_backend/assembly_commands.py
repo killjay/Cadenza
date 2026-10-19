@@ -5,9 +5,9 @@ from typing import NoReturn
 from math import hypot
 
 from cadenza_contracts.assembly_commands import (AssemblyCommand, AssemblyCapabilitiesResponse,
-    AssemblyCapabilitiesRequest, AddPlanarAttachment, AddRigidJoint, RemoveJoint, CreateSubassembly,
+    AssemblyCapabilitiesRequest, AddPlanarAttachment, AddRigidJoint, RemoveJoint, CreateSubassembly, MakeIndependent,
     InitializeAssembly, AddInstance, DuplicateInstance, SetInstancePlacement, RenameInstance,
-    RemoveInstance, MAX_COMPONENTS, MAX_LEAVES, MAX_DEPTH, OPERATIONS, E2_OPERATIONS, PLANAR_OPERATIONS)
+    RemoveInstance, MAX_COMPONENTS, MAX_LEAVES, MAX_DEPTH, OPERATIONS, E2_OPERATIONS, PLANAR_OPERATIONS, INDEPENDENCE_OPERATIONS)
 from cadenza_contracts.ledger import Component, Ledger, Assembly, Joint
 from cadenza_contracts.references import validate_references
 from cadenza_backend.contracts_bridge import CadenzaError, ErrorCode, PatchOp
@@ -135,7 +135,7 @@ def capabilities(session, request: str | AssemblyCapabilitiesRequest) -> Assembl
             reason = str(exc)
     return AssemblyCapabilitiesResponse(message_id=request.message_id, session_id=session.id,
         revision=session.revision, ledger_id=ledger_id, version=request.version, owner_path=request.owner_path,
-        operations=list(PLANAR_OPERATIONS if request.version == 3 else E2_OPERATIONS if request.version == 2 else OPERATIONS),
+        operations=list(INDEPENDENCE_OPERATIONS if request.version == 4 else PLANAR_OPERATIONS if request.version == 3 else E2_OPERATIONS if request.version == 2 else OPERATIONS),
         can_initialize=reason is None and owner is not None and owner.assembly is None,
         can_edit=reason is None and owner is not None and owner.assembly is not None, reason=reason)
 
@@ -143,6 +143,8 @@ def capabilities(session, request: str | AssemblyCapabilitiesRequest) -> Assembl
 def compile_command(session, request: AssemblyCommand, *, new_definition: Ledger | None = None, planar_targets: dict[int, dict] | None = None) -> list[PatchOp]:
     def reject(message: str) -> NoReturn:
         raise CadenzaError(ErrorCode.BAD_MESSAGE, message)
+    if request.scope != "assembly_definition":
+        reject("Occurrence independence uses its dedicated branch-copy preparation.")
     availability = capabilities(session, AssemblyCapabilitiesRequest(message_id=request.message_id,
         version=3, ledger_id=request.ledger_id, owner_path=request.owner_path))
     if availability.reason:
@@ -382,6 +384,28 @@ async def handle_assembly_command(session, request: AssemblyCommand, emit, *, pr
         raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed. Refresh before editing.")
     if session.draft or pending(session):
         raise CadenzaError(ErrorCode.BUSY, "Finish the draft or apply/cancel the preview first.")
+    if isinstance(request.operations[0], MakeIndependent):
+        from cadenza_backend.instance_independence import prepare, verify, verify_measurements
+        from cadenza_backend.diagnostics import event
+        base = session.snapshot()
+        event("independence.stage", stage="prepare", component_path=[*request.owner_path, request.operations[0].component_id])
+        prepared = prepare(session, request)
+        event("independence.stage", stage="native_build", copies=prepared.copies, result=prepared.result())
+        outcome = await build_design(prepared.ledgers, session.primary_ledger_id)
+        if not outcome.ok or outcome.stub:
+            raise CadenzaError(outcome.code or ErrorCode.GEOMETRY_KERNEL_FAILURE, outcome.detail, interference=outcome.interference)
+        original = await build_design(base, session.primary_ledger_id)
+        event("independence.stage", stage="measurements")
+        verify_measurements(original, outcome)
+        event("independence.stage", stage="poses_and_references")
+        checks = await verify(base, prepared, session.primary_ledger_id)
+        if session.revision != request.base_revision or session.snapshot() != base:
+            raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed while preparing the independent copy.")
+        event("independence.verified", component_path=prepared.path, copies=prepared.copies, checks=checks)
+        await publish_preview(session, prepared.ledgers, outcome, request.message_id, emit,
+            summary=f"Make this occurrence independent as {prepared.name}. Original sources remain available; attachments are retained. {len(prepared.copies) - 2} parent assembly definition(s) copied.",
+            prompt_scope="assembly", independence=prepared.result(), extra_checks=checks)
+        return
     base = session.snapshot()
     try:
         owner = resolve_owner(session, request.ledger_id, request.owner_path)

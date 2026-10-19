@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useStore } from "../lib/store";
 import { requestNumericDraftDiscard } from "../lib/featureCommands";
+import { assemblyRows } from "../lib/assembly";
 import { FaceAttachmentPicker } from "./FaceAttachmentPicker";
 import { Viewport } from "./Viewport";
 import { SketchWorkspace } from "./SketchWorkspace";
@@ -17,6 +18,7 @@ export function WorkspacePanels() {
   const [tab, setTab] = useState<"properties" | "assistant">("assistant");
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [assembly, setAssembly] = useState(false);
+  const [pendingAssembly, setPendingAssembly] = useState<{ path?: string; session: string | null } | null>(null);
   const [width, setWidth] = useState(360), [expanded, setExpanded] = useState(false);
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 1100px)").matches);
   const [treeOpen, setTreeOpen] = useState(false), [inspectorOpen, setInspectorOpen] = useState(false);
@@ -31,12 +33,27 @@ export function WorkspacePanels() {
   };
   const inspectAssembly = (path?: string) => {
     if (state.draft || state.draftStarting) return;
+    if (state.selectedSourceId) {
+      state.selectSource(null);
+      if (useStore.getState().selectedSourceId) return;
+      setPendingAssembly({ path, session: state.sessionId });
+      return;
+    }
     if (path !== undefined && path !== state.assemblySelection) {
       state.selectAssembly(path);
       if (useStore.getState().assemblySelection !== path) return;
     } else if (!assembly && !requestNumericDraftDiscard(window, true)) return;
     setAssembly(true); show("properties");
   };
+  useEffect(() => {
+    if (!pendingAssembly) return;
+    if (pendingAssembly.session !== state.sessionId || state.selectedSourceId || state.sourceError) {
+      setPendingAssembly(null); return;
+    }
+    if (state.busy || state.sourceLoading || state.sourceRequest || state.model?.source !== "server") return;
+    inspectAssembly(pendingAssembly.path);
+    setPendingAssembly(null);
+  }, [pendingAssembly, state.sessionId, state.selectedSourceId, state.sourceError, state.busy, state.sourceLoading, state.sourceRequest, state.model]);
   useEffect(() => {
     const media = matchMedia("(max-width: 1100px)");
     const resize = () => setCompact(media.matches);
@@ -58,7 +75,8 @@ export function WorkspacePanels() {
   useEffect(() => {
     setInspection(state.selectedSourceId ? { ledgerId: state.selectedSourceId } : null);
     setAssembly(false);
-  }, [state.selectedSourceId, state.sessionId]);
+    if (state.selectedSourceId) show("properties");
+  }, [state.selectedSourceId, state.selectedSourcePath?.join("/"), state.sessionId]);
   const selection = state.selections.length === 1 ? state.selections[0] : undefined;
   useEffect(() => {
     if (selection?.source) show("properties");
@@ -82,7 +100,8 @@ export function WorkspacePanels() {
   const source = inspection && state.ledgers[inspection.ledgerId];
   const validInspection = source && (!inspection.featureId || source.features.some(feature => feature.id === inspection.featureId)) ? inspection : null;
   const displayId = state.preview?.display_ledger_id || state.selectedSourceId || state.primaryLedgerId;
-  const display = displayId ? state.ledgers[displayId]?.metadata.name : null;
+  const occurrence = assemblyRows(state.ledgers, state.primaryLedgerId ?? "").find(row => row.path === state.selectedSourcePath?.join("/"));
+  const display = !state.preview && occurrence ? occurrence.component.name : displayId ? state.ledgers[displayId]?.metadata.name : null;
   const maximumWidth = () => Math.min(720, Math.max(300, (host.current?.clientWidth ?? innerWidth) - 500));
   const resize = (value: number) => { setExpanded(false); setWidth(Math.min(maximumWidth(), Math.max(300, value))); };
   const close = (target: "tree" | "inspector") => {
@@ -112,7 +131,7 @@ export function WorkspacePanels() {
         <span> Colour does not indicate validity.</span>
       </div>}
       <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[80%] rounded bg-chrome/90 px-2 py-1 text-11">
-        {state.preview ? "Preview — not applied" : state.selectedSourceId ? "Source part" : "Project view"}: {display || "Untitled"}
+        {state.sourceLoading ? "Loading part" : state.preview ? "Preview — not applied" : state.selectedSourceId ? "Part" : "Project view"}: {display || "Untitled"}
       </div>
       {state.draft && <SketchWorkspace key={state.draft.id} />}
     </div>

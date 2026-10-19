@@ -260,6 +260,7 @@ export type AssemblyOperation =
   | { op: "duplicate_instance"; component_id: string; name: string; placement: AbsoluteAssemblyPlacement }
   | { op: "set_instance_placement"; component_id: string; placement: AbsoluteAssemblyPlacement }
   | { op: "rename_instance"; component_id: string; name: string }
+  | { op: "make_independent"; component_id: string; name: string }
   | { op: "remove_instance"; component_id: string }
   | { op: "add_planar_attachment"; component_a: string; component_b: string; target_a: PlanarPick; target_b: PlanarPick }
   | { op: "add_rigid_joint"; component_a: string; component_b: string; target_a: AssemblyAnchor; target_b: AssemblyAnchor }
@@ -270,13 +271,13 @@ export interface PlanarPick { reference: SurfaceReference; point: Vec3; normal: 
 export interface AssemblyAnchor { point: [number, number, number]; normal: [number, number, number] | null; }
 export interface AbsoluteAssemblyPlacement { origin: [number, number, number]; rotation_deg: [number, number, number]; }
 export interface AssemblyCommand { type: "design.assembly.command"; message_id: string; base_revision: number;
-  ledger_id: string; owner_path?: string[]; scope: "assembly_definition"; operations: AssemblyOperation[]; }
+  ledger_id: string; owner_path?: string[]; scope: "assembly_definition" | "occurrence"; operations: AssemblyOperation[]; }
 export type AssemblyCapabilitiesRequest = { type: "design.assembly.capabilities"; message_id: string } &
-  ({ version?: 1 } | { version: 2 | 3; ledger_id: string; owner_path: string[] });
+  ({ version?: 1 } | { version: 2 | 3 | 4; ledger_id: string; owner_path: string[] });
 export type AssemblyCapabilitiesResponse = { type: "design.assembly.capabilities"; message_id: string;
   session_id: string; revision: number; ledger_id: string; can_initialize: boolean; can_edit: boolean;
   reason: string | null; operations: string[]; max_operations: 16; max_components: 32; max_leaves: 128; max_depth: 8; } &
-  ({ version: 1 } | { version: 2 | 3; owner_path: string[]; max_subassemblies: 8; max_initial_children: 16 });
+  ({ version: 1 } | { version: 2 | 3 | 4; owner_path: string[]; max_subassemblies: 8; max_initial_children: 16 });
 
 export type ClientMessage =
   | AssemblyCommand | AssemblyCapabilitiesRequest | AssemblyPrompt | AssemblyPromptCapabilitiesRequest
@@ -429,6 +430,7 @@ export interface Pong { type: "pong"; t: number; }
 
 export interface PreviewChange { ledger_id: string; path: string; before: unknown; after: unknown; }
 export interface PreviewReady {
+  independence?: { component_path: string[]; old_source_id: string; new_source_id: string; name: string; copied_assemblies: number } | null;
   attachment_contacts?: { definition_id: string; joint_id: string; separation_mm: number; normal_residual: number; area_mm2: number; references_resolved: true; contact_verified: true }[];
   type: "design.preview"; message_id: string; preview_id: string; base_revision: number;
   summary: string; prompt: string; changes: PreviewChange[]; checks: string[];

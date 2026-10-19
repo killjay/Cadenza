@@ -34,7 +34,7 @@ export function PartsWorkspace({ renderFeatures }: { renderFeatures?: (source: L
         aria-pressed={state.selectedSourceId === source.project_id}
         className="rounded border border-hairline px-2 py-1 text-left disabled:opacity-40 aria-pressed:border-accent"
         onClick={() => state.selectSource(state.selectedSourceId === source.project_id ? null : source.project_id)}>
-        View {source.metadata.name}
+        {source.metadata.name}
       </button>{canRename && source.features.length > 0 && <details className="ml-2">
         <summary className="cursor-pointer">Part actions for {source.metadata.name}</summary>
         <SourceRename key={`${state.sessionRevision}:${source.project_id}`} source={source} disabled={blocked || state.sourceLoading} />

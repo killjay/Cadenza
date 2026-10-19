@@ -1070,7 +1070,7 @@ async function assemblySetup(version = 2) {
   const cap = { type: "design.assembly.capabilities", message_id: s.store.getState().assemblyDiscovery,
     session_id: "ses_test", revision: 0, ledger_id: "root", version, owner_path: [], max_subassemblies: 8, max_initial_children: 16, can_initialize: true, can_edit: false,
     reason: null, max_operations: 16, max_components: 32, max_leaves: 128, max_depth: 8,
-    operations: ["initialize_assembly", "add_instance", "duplicate_instance", "set_instance_placement", "rename_instance", "remove_instance", "add_rigid_joint", "remove_joint", "create_subassembly", ...(version === 3 ? ["add_planar_attachment"] : [])] };
+    operations: ["initialize_assembly", "add_instance", "duplicate_instance", "set_instance_placement", "rename_instance", "remove_instance", "add_rigid_joint", "remove_joint", "create_subassembly", ...(version >= 3 ? ["add_planar_attachment"] : []), ...(version === 4 ? ["make_independent"] : [])] };
   return { ...s, cap };
 }
 const assemblyOps = [{ op: "initialize_assembly", name: "Fixture" }, { op: "add_instance", name: "Plate", source_ledger_id: "part",
@@ -1341,8 +1341,8 @@ test("v3 face controls fall back to v2 without unlocking a mutation", async () =
   assert.equal(s.store.getState().assemblyCapabilities.version, 2);
 });
 
-test("face picker pins endpoints, rejects stale picks and submits through assembly preview", async () => {
-  const s = await assemblySetup(3);
+for (const version of [3, 4]) test(`v${version} face picker pins endpoints, rejects stale picks and submits through assembly preview`, async () => {
+  const s = await assemblySetup(version);
   const source = id => ({ ...commandLedger, project_id: id });
   const components = [{id:"comp_a",sub_assembly_id:"part"},{id:"comp_b",sub_assembly_id:"other"}];
   s.store.setState({ ledgers: { root: {project_id:"root",features:[],assembly:{components,joints:[]}}, part:source("part"), other:source("other") },
@@ -1366,4 +1366,131 @@ test("face picker pins endpoints, rejects stale picks and submits through assemb
   assert.equal(sent.operations[0].target_a.reference.source_ledger_id,"part");
   assert.equal(sent.operations[0].target_b.reference.source_ledger_id,"other");
   assert.equal(s.store.getState().busy,true);
+});
+
+async function independentSetup(nested = false) {
+  const s = await assemblySetup(4);
+  const source = {...commandLedger, metadata:{name:"Plate"}};
+  const inner = {project_id:"inner",features:[],metadata:{name:"Module"},assembly:{components:[
+    {id:"comp_left",sub_assembly_id:"part"},{id:"comp_right",sub_assembly_id:"part"}],joints:[]}};
+  const root = nested ? {project_id:"root",features:[],metadata:{name:"Root"},assembly:{components:[
+    {id:"comp_one",sub_assembly_id:"inner"},{id:"comp_two",sub_assembly_id:"inner"}],joints:[]}} : {...inner,project_id:"root"};
+  const path = nested ? "comp_one/comp_left" : "comp_left";
+  s.store.setState({ledgers:{root,part:source,...(nested?{inner}:{})},assemblySelection:path, model:{source:"server"}});
+  s.store.getState().onFrame({...s.cap,can_edit:true,can_initialize:false});
+  const discover = () => s.store.getState().onFrame({...s.cap,message_id:s.store.getState().assemblyDiscovery,
+    ledger_id:nested?"inner":"root",owner_path:nested?["comp_one"]:[],can_edit:true,can_initialize:false});
+  return {...s,path,discover};
+}
+
+for (const nested of [false, true]) test(`viewed ${nested ? "nested" : "direct"} part rename is scoped and capability gated`, async () => {
+  const s = await independentSetup(nested);
+  s.store.setState({ selectedSourceId: "part", selectedSourcePath: s.path.split("/"), model: { source: "source" },
+    sourceView: { ledger_id: "part" }, assemblyCapabilities: null });
+  const operations = [{ op: "rename_instance", component_id: "comp_left", name: "Custom left" }];
+  s.store.getState().previewAssembly(operations);
+  assert.equal(s.calls.filter(c => c.type === "design.assembly.command").length, 0);
+  s.store.getState().discoverViewedAssembly();
+  const request = s.calls.at(-1);
+  assert.equal(request.type, "design.assembly.capabilities");
+  assert.equal(request.ledger_id, nested ? "inner" : "root");
+  assert.deepEqual(Array.from(request.owner_path), nested ? ["comp_one"] : []);
+  const count = s.calls.length; s.store.getState().discoverViewedAssembly(); assert.equal(s.calls.length, count);
+  s.discover();
+  const before = s.store.getState().ledgers;
+  for (const changes of [{ sourceLoading: true }, { sourceRequest: {} }, { faceAttachment: {} }, { independenceDraft: {} },
+    { selectedSourcePath: ["missing"] }, { selectedSourceId: "second" }, { model: { source: "local" } },
+    { sourceView: null }, { assemblyCapabilities: { ...s.store.getState().assemblyCapabilities, revision: 99 } }]) {
+    const saved = Object.fromEntries(Object.keys(changes).map(key => [key, s.store.getState()[key]]));
+    s.store.setState(changes); s.store.getState().previewAssembly(operations); s.store.setState(saved);
+  }
+  for (const invalid of [[{ ...operations[0], component_id: "comp_right" }], [operations[0], operations[0]],
+    [{ op: "set_instance_placement", component_id: "comp_left", placement: { origin: [1, 0, 0], rotation_deg: [0, 0, 0] } }]])
+    s.store.getState().previewAssembly(invalid);
+  assert.equal(s.calls.filter(c => c.type === "design.assembly.command").length, 0);
+  s.store.getState().previewAssembly(operations);
+  const command = s.calls.at(-1);
+  assert.equal(command.type, "design.assembly.command"); assert.equal(command.ledger_id, nested ? "inner" : "root");
+  assert.deepEqual(Array.from(command.owner_path), nested ? ["comp_one"] : []);
+  assert.equal(command.scope, "assembly_definition"); assert.equal(command.operations[0].component_id, "comp_left");
+  assert.equal(s.store.getState().ledgers, before); assert.equal(s.store.getState().selectedSourceId, "part");
+  assert.equal(s.store.getState().busy, true);
+});
+
+test("v4 falls back through v3 without unlocking in-flight edits or accepting stale discovery", async () => {
+  const s = await assemblySetup(4); s.store.setState({busy:true});
+  s.store.getState().onFrame({type:"error",message_id:s.cap.message_id,code:"BAD_MESSAGE",message:"Unsupported"});
+  assert.equal(s.store.getState().assemblyVersion,3); assert.equal(s.store.getState().busy,true);
+  s.store.getState().onFrame(s.cap); assert.equal(s.store.getState().assemblyCapabilities,null);
+  s.store.getState().onFrame({...s.cap,version:3,message_id:s.store.getState().assemblyDiscovery,operations:s.cap.operations.slice(0,-1)});
+  assert.equal(s.store.getState().assemblyCapabilities.version,3);
+});
+
+for (const nested of [false,true]) test(`independence pins exact ${nested?"nested":"direct"} occurrence and waits for correlated capability`, async () => {
+  const s = await independentSetup(nested), before=s.store.getState().ledgers;
+  s.store.getState().startIndependence(s.path);
+  assert.equal(s.store.getState().ledgers,before); assert.equal(s.store.getState().model.source,"server");
+  let count=s.calls.length; s.store.getState().previewIndependent("Custom plate"); assert.equal(s.calls.length,count);
+  s.discover(); s.store.getState().previewIndependent(" plate "); assert.equal(s.calls.filter(c=>c.type==="design.assembly.command").length,0);
+  s.store.getState().previewIndependent("Custom plate"); const command=s.calls.at(-1);
+  assert.equal(command.scope,"occurrence"); assert.equal(command.ledger_id,nested?"inner":"root");
+  assert.deepEqual(Array.from(command.owner_path),nested?["comp_one"]:[]);
+  assert.equal(command.operations[0].component_id,"comp_left"); assert.equal(s.store.getState().busy,true);
+  s.store.getState().onFrame({type:"error",message_id:command.message_id,code:"BAD_MESSAGE",message:"Try again"});
+  assert.equal(s.store.getState().independenceDraft.path,s.path);
+  s.store.getState().selectAssembly(null); assert.equal(s.store.getState().independenceDraft,null);
+});
+
+test("source-only views cannot guess an occurrence; contextual action and dirty guards are respected", async () => {
+  const s=await independentSetup();
+  const refuse=event=>event.preventDefault();
+  s.window.addEventListener("cadenza:discard-numeric-edits",refuse);
+  s.store.getState().startIndependence(s.path); assert.equal(s.store.getState().independenceDraft,null);
+  s.window.removeEventListener("cadenza:discard-numeric-edits",refuse);
+  s.store.setState({selectedSourceId:"part",selectedSourcePath:null,model:{source:"source"}});
+  s.store.getState().startIndependence(s.path); assert.equal(s.store.getState().independenceDraft,null);
+  s.store.setState({selectedSourcePath:["comp_left"]});
+  s.store.getState().startIndependence(s.path); assert.equal(s.store.getState().independenceDraft.path,s.path);
+  s.discover(); s.store.setState({sessionRevision:2});
+  const count=s.calls.length; s.store.getState().previewIndependent("Custom"); assert.equal(s.calls.length,count);
+});
+
+test("source-view Cancel retains independence form and matching capability", async () => {
+  const s=await independentSetup();
+  s.store.setState({selectedSourceId:"part",selectedSourcePath:["comp_left"],model:{source:"source"},
+    partCapabilities:{...s.store.getState().partCapabilities,source_context:true}});
+  s.store.getState().startIndependence(s.path);s.discover();
+  const cap=s.store.getState().assemblyCapabilities,draft=s.store.getState().independenceDraft;
+  s.store.setState({preview:{preview_id:"candidate",base_revision:0}});
+  s.store.getState().onFrame({type:"design.preview_closed",preview_id:"candidate",message_id:"cancel"});
+  assert.equal(s.store.getState().independenceDraft,draft);
+  assert.equal(s.store.getState().assemblyCapabilities,cap);
+  assert.equal(s.store.getState().selectedSourceId,"part");
+});
+
+test("independence Apply navigation requires matching accepted request and path; undo follows source", async () => {
+  for (const matching of [false,true]) {
+    const s=await independentSetup();
+    const result={component_path:["comp_left"],old_source_id:"part",new_source_id:"copy",name:"Custom",copied_assemblies:0};
+    s.store.setState({preview:{preview_id:"candidate",base_revision:0,independence:result},previewRendering:false});
+    s.store.getState().decidePreview("apply"); const decision=s.calls.at(-1);
+    const store=structuredClone(s.store.getState().ledgers); store.copy={...store.part,project_id:"copy",metadata:{name:"Custom"}};
+    store.root.assembly.components[0].sub_assembly_id="copy";
+    s.store.getState().onFrame({type:"ledger.updated",message_id:matching?decision.message_id:"unrelated",revision:1,store,can_undo:true});
+    assert.equal(!!s.store.getState().independentResult,matching);
+    assert.equal(s.store.getState().independenceApply,null);
+    s.store.setState({selectedSourceId:"copy",selectedSourcePath:["comp_left"]});
+    const reverted=structuredClone(store);delete reverted.copy;reverted.root.assembly.components[0].sub_assembly_id="part";
+    s.store.getState().onFrame({type:"ledger.updated",message_id:"undo",revision:2,store:reverted,can_undo:true});
+    assert.equal(s.store.getState().selectedSourceId,"part"); assert.deepEqual(Array.from(s.store.getState().selectedSourcePath),["comp_left"]);
+    assert.equal(s.store.getState().independentResult,null);
+  }
+});
+
+test("cancel and disconnect cannot retain pending independent Apply navigation", async () => {
+  const s=await independentSetup();
+  s.store.setState({preview:{preview_id:"candidate",base_revision:0,independence:{new_source_id:"copy"}}});
+  s.store.getState().decidePreview("cancel"); assert.equal(s.store.getState().independenceApply,null);
+  s.store.getState().connect(); s.connection("closed");
+  assert.equal(s.store.getState().independenceDraft,null);assert.equal(s.store.getState().independentResult,null);
 });

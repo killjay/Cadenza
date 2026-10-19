@@ -97,7 +97,13 @@ interface State {
   assemblySelection: string | null;
   assemblyOwnerId: string | null;
   assemblyOwnerPath: string[];
-  assemblyVersion: 1 | 2 | 3;
+  assemblyVersion: 1 | 2 | 3 | 4;
+  independenceDraft: { path: string; session: string; revision: number } | null;
+  independenceApply: { id: string; result: NonNullable<PreviewReady["independence"]> } | null;
+  independentResult: NonNullable<PreviewReady["independence"]> | null;
+  startIndependence: (path: string) => void;
+  cancelIndependence: () => void;
+  previewIndependent: (name: string) => void;
   faceAttachment: FaceAttachmentDraft | null;
   startFaceAttachment: (a: string, b: string, jointId?: string) => void;
   attachmentSide: (side: "a" | "b") => void;
@@ -123,6 +129,7 @@ interface State {
   showContext: boolean;
   toggleContext: () => void;
   selectSource: (id: string | null, preserveInput?: boolean, componentPath?: string[] | null) => void;
+  discoverViewedAssembly: () => void;
   loadSourceView: (frame: PartViewReady) => Promise<void>;
   createPart: (name: string, operations: PartOperation[]) => void;
   startPartPrompt: (name: string | null) => void;
@@ -272,7 +279,8 @@ export const useStore = create<State>((set, get) => ({
     return true;
   },
   assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
-  assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 3, faceAttachment: null,
+  assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
+  independenceDraft: null, independenceApply: null, independentResult: null,
   primaryLedgerId: null, partCapabilities: null, partDiscovery: null, partRequest: null, newPartName: null,
   selectedSourceId: null, selectedSourcePath: null, sourceRequest: null, sourceView: null, sourceLoading: false, sourceError: null,
   sourceContextWarning: null, showContext: true, toggleContext: () => set(s => ({ showContext: !s.showContext })),
@@ -320,7 +328,7 @@ export const useStore = create<State>((set, get) => ({
   startFaceAttachment(a, b, jointId) {
     const state = get(), cap = state.assemblyCapabilities;
     const owner = state.ledgers[state.assemblyOwnerId ?? ""];
-    if (cap?.version !== 3 || !cap.can_edit || cap.revision !== state.sessionRevision || cap.session_id !== state.sessionId
+    if (!cap || cap.version < 3 || !cap.can_edit || cap.revision !== state.sessionRevision || cap.session_id !== state.sessionId
       || state.busy || state.preview || state.draft || state.draftStarting || state.connection !== "open"
       || !state.sessionId || !owner?.assembly || a === b || !state.partCapabilities?.source_context) return;
     if (![a, b].every(id => { const component = owner.assembly!.components.find(c => c.id === id);
@@ -379,6 +387,41 @@ export const useStore = create<State>((set, get) => ({
     get().selectSource(state.ledgers[draft.returnSource ?? ""] ? draft.returnSource : null, true, draft.returnPath);
   },
 
+  startIndependence(path) {
+    const state = get();
+    const row = assemblyRows(state.ledgers, state.primaryLedgerId ?? "").find(r => r.path === path);
+    if (!row?.source || row.source.assembly || !state.sessionId || state.connection !== "open"
+      || state.busy || state.preview || state.draft || state.draftStarting || state.sourceLoading || state.sourceRequest
+      || state.faceAttachment || !["server", "source"].includes(state.model?.source ?? "")
+      || (state.selectedSourceId ? state.selectedSourcePath?.join("/") !== path || state.selectedSourceId !== row.source.project_id : state.assemblySelection !== path)
+      || !requestNumericDraftDiscard(window)) return;
+    get().invalidateAssemblyPrompt();
+    set({ independenceDraft: { path, session: state.sessionId, revision: state.sessionRevision },
+      assemblyOwnerId: row.ownerId, assemblyOwnerPath: row.ownerPath });
+    get().discoverAssembly();
+  },
+  cancelIndependence() {
+    if (!get().busy && !get().preview) set({ independenceDraft: null });
+  },
+  previewIndependent(name) {
+    const state = get(), draft = state.independenceDraft, cap = state.assemblyCapabilities;
+    const row = assemblyRows(state.ledgers, state.primaryLedgerId ?? "").find(r => r.path === draft?.path);
+    name = name.trim();
+    if (!draft || !row?.source || row.source.assembly || draft.session !== state.sessionId || draft.revision !== state.sessionRevision
+      || cap?.version !== 4 || !cap.can_edit || cap.session_id !== state.sessionId || cap.revision !== state.sessionRevision
+      || cap.ledger_id !== row.ownerId || !samePath(cap.owner_path, row.ownerPath)
+      || state.busy || state.preview || state.draft || state.draftStarting || state.sourceLoading || state.sourceRequest
+      || state.connection !== "open" || state.faceAttachment || !["server", "source"].includes(state.model?.source ?? "")
+      || (state.selectedSourceId ? state.selectedSourcePath?.join("/") !== draft.path || state.selectedSourceId !== row.source.project_id : state.assemblySelection !== draft.path)
+      || !name || name.length > 100 || Object.values(state.ledgers).some(l => !l.assembly && l.metadata.name.trim().toLowerCase() === name.toLowerCase())
+      || !requestNumericDraftDiscard(window)) return;
+    const id = `asm_${nextId()}`;
+    set({ assemblyRequest: id, busy: true, phase: "Checking independent part", interference: null,
+      selections: [], promptOpen: false, featurePromptTarget: null, previewInput: null, reviseInput: null });
+    socket.send({ type: "design.assembly.command", message_id: id, base_revision: state.sessionRevision,
+      ledger_id: row.ownerId, owner_path: row.ownerPath, scope: "occurrence",
+      operations: [{ op: "make_independent", component_id: row.component.id, name }] });
+  },
   discoverAssembly() {
     const state = get();
     if (!state.primaryLedgerId || state.connection !== "open") return;
@@ -406,17 +449,37 @@ export const useStore = create<State>((set, get) => ({
     if (state.busy || state.preview || state.draft || state.draftStarting || state.sourceLoading
       || state.selectedSourceId || state.connection !== "open" || state.model?.source === "local") return;
     if (path !== state.assemblySelection && !requestNumericDraftDiscard(window, true)) return;
-    set({ assemblySelection: path, selections: [], promptOpen: false });
+    set({ assemblySelection: path, selections: [], promptOpen: false, independenceDraft: null });
+  },
+  discoverViewedAssembly() {
+    const state = get();
+    const row = assemblyRows(state.ledgers, state.primaryLedgerId ?? "").find(r => r.path === state.selectedSourcePath?.join("/"));
+    if (!row || row.source?.project_id !== state.selectedSourceId || state.connection !== "open"
+      || state.busy || state.preview || state.draft || state.draftStarting || state.sourceLoading || state.sourceRequest
+      || state.faceAttachment || state.independenceDraft || state.model?.source !== "source"
+      || (state.assemblyVersion === 1 && row.ownerPath.length > 0)) return;
+    const sameOwner = row.ownerId === state.assemblyOwnerId && samePath(row.ownerPath, state.assemblyOwnerPath);
+    if (sameOwner && (state.assemblyDiscovery || (state.assemblyCapabilities?.revision === state.sessionRevision
+      && state.assemblyCapabilities.session_id === state.sessionId))) return;
+    set({ assemblyOwnerId: row.ownerId, assemblyOwnerPath: row.ownerPath });
+    get().discoverAssembly();
   },
   previewAssembly(operations) {
     const state = get(), cap = state.assemblyCapabilities;
+    const row = state.selectedSourceId ? assemblyRows(state.ledgers, state.primaryLedgerId ?? "")
+      .find(r => r.path === state.selectedSourcePath?.join("/")) : undefined;
+    const viewedRename = !!row && row.source?.project_id === state.selectedSourceId && row.ownerId === cap?.ledger_id
+      && samePath(row.ownerPath, state.assemblyOwnerPath) && state.model?.source === "source"
+      && state.sourceView?.ledger_id === state.selectedSourceId && !state.faceAttachment && !state.independenceDraft
+      && operations.length === 1 && operations[0].op === "rename_instance" && operations[0].component_id === row.component.id;
     if (!cap || (!cap.can_edit && !cap.can_initialize) || cap.session_id !== state.sessionId
       || cap.revision !== state.sessionRevision || cap.ledger_id !== state.assemblyOwnerId
       || (cap.version !== 1 && JSON.stringify(cap.owner_path) !== JSON.stringify(state.assemblyOwnerPath))
-      || state.busy || state.preview || state.draft || state.draftStarting || state.selectedSourceId
+      || state.busy || state.preview || state.draft || state.draftStarting || (state.selectedSourceId && !viewedRename)
       || state.sourceLoading || state.sourceRequest || state.connection !== "open" || state.model?.source === "local"
-      || (cap.can_edit && state.model?.source !== "server")
+      || (cap.can_edit && state.model?.source !== "server" && !viewedRename)
       || !operations.length || operations.length > cap.max_operations || operations.some(op => !cap.operations.includes(op.op))) return;
+    if (viewedRename && !requestNumericDraftDiscard(window)) return;
     const id = `asm_${nextId()}`;
     set({ assemblyPromptTarget: null, assemblyPromptBlocked: false });
     set({ interference: null, assemblyRequest: id, busy: true, phase: "Building assembly preview", featurePromptTarget: null,
@@ -438,8 +501,9 @@ export const useStore = create<State>((set, get) => ({
     if (!preserveInput && changed && !requestNumericDraftDiscard(window)) return;
     get().invalidateAssemblyPrompt();
     get().clearGeometry(true);
-    set({ faceAttachment: null, interference: null, selectedSourceId: id, selectedSourcePath: path, sourceView: null, sourceError: null, sourceContextWarning: null, assemblySelection: null,
-      assemblyOwnerId: state.primaryLedgerId, assemblyOwnerPath: [], assemblyCapabilities: null, assemblyDiscovery: null,
+    const keepIndependence = preserveInput && !changed && !!state.independenceDraft;
+    set({ independenceDraft: keepIndependence ? state.independenceDraft : null, faceAttachment: null, interference: null, selectedSourceId: id, selectedSourcePath: path, sourceView: null, sourceError: null, sourceContextWarning: null, assemblySelection: null,
+      ...(keepIndependence ? {} : { assemblyOwnerId: state.primaryLedgerId, assemblyOwnerPath: [], assemblyCapabilities: null, assemblyDiscovery: null }),
       ...(preserveInput ? {} : { featurePromptTarget: null, newPartName: null }) });
     if (state.sourceRequest) { set({ sourceLoading: true, sourceRequest: { ...state.sourceRequest } }); return; }
     if (!id) {
@@ -589,7 +653,8 @@ export const useStore = create<State>((set, get) => ({
             surfaceRequest++;
             if (get().selectedSourceId) get().clearGeometry();
             set({ assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
-              assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 3, faceAttachment: null,
+              assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
+              independenceDraft: null, independenceApply: null, independentResult: null,
               partCapabilities: null, partDiscovery: null, partRequest: null, newPartName: null,
               selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null, sourceView: null, sourceLoading: false, sourceError: null });
           }
@@ -634,7 +699,8 @@ export const useStore = create<State>((set, get) => ({
         set({ interference: null, sourceFaceAvailable: false });
         get().invalidateAssemblyPrompt();
         set({ assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
-          assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 3, faceAttachment: null });
+          assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
+          independenceDraft: null, independenceApply: null, independentResult: null });
         set({ primaryLedgerId: frame.primary_ledger_id ?? null, partCapabilities: null, partDiscovery: null,
           partRequest: null, newPartName: null, selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null,
           sourceView: null, sourceLoading: false, sourceError: null });
@@ -731,7 +797,7 @@ export const useStore = create<State>((set, get) => ({
           && frame.max_components === 32 && frame.max_leaves === 128 && frame.max_depth === 8
           && typeof frame.can_initialize === "boolean" && typeof frame.can_edit === "boolean"
           && JSON.stringify(frame.operations) === JSON.stringify(["initialize_assembly", "add_instance", "duplicate_instance",
-            "set_instance_placement", "rename_instance", "remove_instance", ...(frame.version !== 1 ? ["add_rigid_joint", "remove_joint", "create_subassembly"] : []), ...(frame.version === 3 ? ["add_planar_attachment"] : [])])
+            "set_instance_placement", "rename_instance", "remove_instance", ...(frame.version !== 1 ? ["add_rigid_joint", "remove_joint", "create_subassembly"] : []), ...(frame.version >= 3 ? ["add_planar_attachment"] : []), ...(frame.version === 4 ? ["make_independent"] : [])])
           && (frame.version === 1 || (frame.max_subassemblies === 8 && frame.max_initial_children === 16)) ? frame : null });
         if ((get().assemblyCapabilities?.version ?? 1) >= 2) {
           const id = `e3cap_${nextId()}`; set({ assemblyPromptDiscovery: id, assemblyPromptCapabilities: null });
@@ -767,6 +833,17 @@ export const useStore = create<State>((set, get) => ({
       case "ledger.updated":
         set({ interference: null });
         if (frame.revision < get().sessionRevision) break;
+        {
+          const state = get(), applied = state.independenceApply;
+          const rows = assemblyRows(frame.store, state.primaryLedgerId ?? "");
+          const result = applied && applied.id === frame.message_id ? applied.result : state.independentResult;
+          set({ independenceDraft: null, independenceApply: null, independentResult: result && rows.some(row =>
+            row.path === result.component_path.join("/") && row.source?.project_id === result.new_source_id) ? result : null });
+          // Undo/Redo follows the accepted source at the explicitly selected occurrence.
+          const selected = rows.find(row => row.path === state.selectedSourcePath?.join("/"));
+          if (state.selectedSourceId && selected?.source && !selected.source.assembly)
+            set({ selectedSourceId: selected.source.project_id });
+        }
         get().invalidateAssemblyPrompt();
         if (frame.revision > get().sessionRevision) set({ busy: false, phase: null });
         set({ assemblyRequest: null, assemblySelection: null });
@@ -841,7 +918,7 @@ export const useStore = create<State>((set, get) => ({
           get().clearGeometry();
           set({ preview: null, previewLoading: false, previewError: null });
         }
-        set({ busy: false, phase: null, partRequest: null, assemblyRequest: null });
+        set({ busy: false, phase: null, partRequest: null, assemblyRequest: null, independenceApply: null });
         if (get().selectedSourceId) get().selectSource(get().selectedSourceId, true);
         break;
 
@@ -904,8 +981,8 @@ export const useStore = create<State>((set, get) => ({
           if (rejected.length) {
             rejected.forEach(d => set(d.reset));
             if ((identified.length || exact.length) && rejected.some(d => d.type === "design.assembly.capabilities")
-              && state.assemblyVersion !== 1 && (state.assemblyVersion === 3 || state.assemblyOwnerPath.length === 0) && frame.code === "BAD_MESSAGE") {
-              set({ assemblyVersion: state.assemblyVersion === 3 ? 2 : 1 }); get().discoverAssembly();
+              && state.assemblyVersion !== 1 && (state.assemblyVersion >= 3 || state.assemblyOwnerPath.length === 0) && frame.code === "BAD_MESSAGE") {
+              set({ assemblyVersion: state.assemblyVersion === 4 ? 3 : state.assemblyVersion === 3 ? 2 : 1 }); get().discoverAssembly();
             }
             break;
           }
@@ -920,6 +997,7 @@ export const useStore = create<State>((set, get) => ({
           const paths = owners.flatMap(owner => [report.component_a, report.component_b].map(path => [owner, ...path].filter(Boolean).join("/")));
           set({ interference: { paths, text: `${names.join(" overlaps ")} in ${state.ledgers[report.definition_id]?.metadata.name || "assembly"}: ${report.volume_mm3.toFixed(2)} mm³ intersection. Showing affected parts in the current model; the rejected change was not applied.` } });
         }
+        if (frame.message_id === get().independenceApply?.id) set({ independenceApply: null });
         if (frame.message_id === get().assemblyRequest) set({ assemblyRequest: null });
         if (frame.message_id === get().assemblyPromptRequest?.id) set({ assemblyPromptRequest: null });
         if (frame.message_id === get().partRequest) set({ partRequest: null });
@@ -962,7 +1040,7 @@ export const useStore = create<State>((set, get) => ({
     if (source === "server" && get().selectedSourceId) return;
     if (source === "local" && (get().preview || get().draft || get().draftStarting)) return;
     if (source === "local") { set({ interference: null }); get().invalidateAssemblyPrompt(); }
-    if (source === "local") set({ faceAttachment: null, assemblySelection: null, assemblyOwnerId: null, assemblyOwnerPath: [], assemblyCapabilities: null, assemblyDiscovery: null, featurePromptTarget: null, featurePromptRequest: null, selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null, sourceView: null, sourceLoading: false, newPartName: null });
+    if (source === "local") set({ independenceDraft: null, independenceApply: null, independentResult: null, faceAttachment: null, assemblySelection: null, assemblyOwnerId: null, assemblyOwnerPath: [], assemblyCapabilities: null, assemblyDiscovery: null, featurePromptTarget: null, featurePromptRequest: null, selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null, sourceView: null, sourceLoading: false, newPartName: null });
     if (source === "server" && revision !== get().sessionRevision) return;
     const generation = get().geometryGeneration + 1;
     // The viewport subscribes to this event rather than the store reading into
@@ -1054,9 +1132,10 @@ export const useStore = create<State>((set, get) => ({
 
   openPrompt: (open) => set({ promptOpen: open }),
 
-  async loadPreview(preview, whole = !!preview.context_warning) {
+  async loadPreview(preview, whole = !!preview.context_warning || !!preview.independence) {
     const start = get();
     if (preview.base_revision !== start.sessionRevision || start.connection !== "open") return;
+    if (preview.independence && preview.message_id !== start.assemblyRequest) return;
     if (preview.draft_id && (start.draft?.id !== preview.draft_id || start.draft.revision !== preview.draft_revision
       || start.draftRequest !== preview.message_id)) return;
     const request = ++previewRequest;
@@ -1105,6 +1184,7 @@ export const useStore = create<State>((set, get) => ({
     }
     const messageId = nextId();
     if (preview.draft_id) set({ draftRequest: messageId });
+    set({ independenceApply: action === "apply" && preview.independence ? { id: messageId, result: preview.independence } : null });
     socket.send({ type: "design.preview_decision", message_id: messageId, base_revision: state.sessionRevision,
       preview_id: preview.preview_id, action });
     set({ interference: null, busy: true, phase: action === "apply" ? "Applying preview" : "Discarding preview" });
