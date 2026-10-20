@@ -209,6 +209,11 @@ class SourceFaceContext(StrictModel):
         return self
 
 
+class SourceEditContext(StrictModel):
+    component_path: OccurrencePath | None = None
+    shared_source_confirmed: bool = Field(default=False, strict=True)
+
+
 class DesignPrompt(_Msg):
     type: Literal["design.prompt"] = "design.prompt"
     message_id: str = Field(min_length=1, max_length=200)
@@ -219,9 +224,14 @@ class DesignPrompt(_Msg):
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
     face: SourceFaceContext | None = None
+    edit_context: SourceEditContext | None = None
 
     @model_validator(mode="after")
     def face_target(self):
+        if (self.face and self.edit_context and self.face.component_path is not None
+                and self.edit_context.component_path is not None
+                and self.face.component_path != self.edit_context.component_path):
+            raise ValueError("Face and edit context must select the same occurrence")
         if self.face:
             ref = self.face.reference
             if ref.ledger_id != self.ledger_id or ref.source_ledger_id != self.ledger_id:
@@ -285,6 +295,7 @@ class PromptCapabilitiesResponse(_Msg):
     scope: Literal["source"] = "source"
     max_operations: Literal[32] = 32
     source_faces: Literal[True] = True
+    explicit_source_scope: Literal[True] = True
 
 
 class LedgerRequest(_Msg):

@@ -197,6 +197,9 @@ fixtures["server"].append(AssemblyCapabilitiesResponse(message_id="independent_c
 fixtures["server"].append(dict(type="design.preview", message_id="independent", preview_id="preview_independent", base_revision=0,
     summary="One independent part", changes=[], checks=[], independence=dict(component_path=["comp_a"], old_source_id="prj_face",
         new_source_id="prj_copy", name="Custom part", copied_assemblies=0)))
+fixtures["client"].append(dict(type="design.prompt", message_id="scope_prompt", base_revision=0,
+    ledger_id="prj_face", feature_id="feat_face", scope="source", prompt="Set height to 12 mm",
+    edit_context=dict(component_path=["comp_a"], shared_source_confirmed=True)))
 print(json.dumps({
     "client": [parse_client_message(frame).model_dump(mode="json") for frame in fixtures["client"]],
     "server": [parse_server_message(frame).model_dump(mode="json") for frame in fixtures["server"]],

@@ -42,6 +42,8 @@ export function Composer({ active = true }: { active?: boolean }) {
   const selectedSourceId = useStore(s => s.selectedSourceId);
   const partAvailable = useStore(s => !!s.partCapabilities);
   const featureTarget = useStore(s => s.featurePromptTarget);
+  const featureBlocked = useStore(s => s.featurePromptBlocked);
+  const explicitScope = useStore(s => s.explicitSourceScope);
   const assemblyTarget = useStore(s => s.assemblyPromptTarget);
   const assemblyBlocked = useStore(s => s.assemblyPromptBlocked);
   const assemblyCap = useStore(s => s.assemblyPromptCapabilities);
@@ -85,12 +87,17 @@ export function Composer({ active = true }: { active?: boolean }) {
   const draftStarting = useStore(s => s.draftStarting);
   const connection = useStore(s => s.connection);
   const agentsAvailable = useStore(s => s.agentsAvailable);
+  const rows = assemblyRows(ledgers, primaryId ?? "");
+  const affected = featureTarget ? rows.filter(row => row.source?.project_id === featureTarget.ledgerId) : [];
+  const occurrence = featureTarget?.componentPath ? affected.find(row => row.path === featureTarget.componentPath!.join("/")) : null;
+  const scopeSupported = explicitScope || (!featureTarget?.componentPath && affected.length <= 1);
   const canSend = !sourceLoading && (!selectedSourceId || !!featureTarget || !!newPartName) && !busy && !preview && !draft && !draftStarting
-    && !assemblyBlocked
+    && !assemblyBlocked && !featureBlocked
     && (assemblyTarget ? !!assemblyCap?.available && connection === "open" && text.trim() !== ""
         && (!attachments.length || assemblyCap.vision_available)
       : newPartName ? partAvailable && agentsAvailable && connection === "open" && text.trim() !== ""
       : featureTarget ? featureAvailable && agentsAvailable && connection === "open" && text.trim() !== ""
+        && scopeSupported && (affected.length <= 1 || featureTarget.sharedConfirmed)
       : (text.trim() !== "" || attachments.length > 0));
 
   useEffect(() => {
@@ -165,7 +172,6 @@ export function Composer({ active = true }: { active?: boolean }) {
     if (!featureTarget && !newPartName && !assemblyTarget) setText("");
   };
 
-  const rows = assemblyRows(ledgers, primaryId ?? "");
   const primary = primaryId ? ledgers[primaryId] : null;
   const owner = assemblyTarget ? ledgers[assemblyTarget.ledgerId] : null;
   const ownerLabels = assemblyTarget?.ownerPath.length
@@ -201,13 +207,34 @@ export function Composer({ active = true }: { active?: boolean }) {
       {featureTarget && <div className="mb-2 rounded border border-accent/40 p-2 text-11" role="status">
         <div>{featureTarget.face ? featureTarget.face.mode === "edit_feature" ? "Edit this feature" : "Add on this face" : featureTarget.featureId ? "Edit with AI" : "Add with AI"}: {ledgers[featureTarget.ledgerId]?.metadata.name ?? "Part"}
           {featureTarget.featureId && ` / ${ledgers[featureTarget.ledgerId]?.features.find(f => f.id === featureTarget.featureId)?.name || "Selected feature"}`}</div>
-        <p className="text-10 text-ink-3">Changes update this part and all {rows.filter(row => row.source?.project_id === featureTarget.ledgerId).length} reused instances. Describe the intended change; review before Apply.</p>
+        {occurrence && <p>Selected part: {occurrence.labels.join(" / ")}</p>}
+        <p className="text-10 text-ink-3">Dimensions and feature positions use this source's coordinates (mm), not assembly placement. Review before Apply; attachments may reposition connected parts.</p>
+        {affected.length > 1 ? <>
+          <details className="my-1"><summary>Shared geometry: {affected.length} placed parts</summary>
+            <ul>{affected.map(row => <li key={row.path}>{row.labels.join(" / ")}</li>)}</ul>
+          </details>
+          <label className="my-2 block"><input type="checkbox" checked={featureTarget.sharedConfirmed}
+            disabled={!scopeSupported || busy || !!preview || sourceLoading}
+            onChange={event => useStore.getState().confirmSharedSource(event.target.checked)} /> Edit shared geometry for all {affected.length} placed parts</label>
+          {occurrence ? <button type="button" className="mb-2 block text-accent disabled:opacity-40" disabled={busy || !!preview || sourceLoading}
+            onClick={() => {
+              const state = useStore.getState(); state.startIndependence(occurrence.path);
+              if (useStore.getState().independenceDraft?.path === occurrence.path)
+                window.dispatchEvent(new CustomEvent("cadenza:inspect-feature", { detail: { ledgerId: featureTarget.ledgerId } }));
+            }}>Make selected part independent</button> : <p>Select a placed part in the tree to make only that part independent.</p>}
+        </> : <p>{affected.length ? "Geometry used by one placed part." : "Standalone or unplaced source geometry."}</p>}
+        {!scopeSupported && <p>Update the backend for contextual or shared AI edits. Numeric controls remain available.</p>}
         <button disabled={busy || !!preview || !!draft || draftStarting} className="text-accent disabled:opacity-40"
           onClick={() => clearFeatureTarget(null)}>Clear AI target</button>
       </div>}
-      {!newPartName && !featureTarget && !assemblyTarget && !assemblyBlocked && <div className="mb-2 text-11" role="status">
+      {featureBlocked && <div className="mb-2 text-11" role="status">
+        <p>The part target changed. Choose an AI edit action again.</p>
+        <button type="button" className="text-accent" disabled={busy || !!preview || !!draft || draftStarting}
+          onClick={() => clearFeatureTarget(null)}>Clear part mode</button>
+      </div>}
+      {!newPartName && !featureTarget && !featureBlocked && !assemblyTarget && !assemblyBlocked && <div className="mb-2 text-11" role="status">
         <p>{selectedSourceId ? `Viewing part: ${ledgers[selectedSourceId]?.metadata.name}. Choose Add with AI or Edit with AI in Properties.`
-          : primary?.assembly ? `General modelling: ${primary.metadata.name}. Select the assembly name or an instance in the model tree for assembly actions.`
+          : primary?.assembly ? `General modelling: project context for ${primary.metadata.name}. This is not an edit of a selected instance. Use Properties for an explicit geometry or assembly action.`
           : primary?.features.length ? `General modelling: ${primary.metadata.name}. Additions modify this part; they do not create separate assembly parts.`
           : "General modelling starts a primary part. For an assembly, create independent parts first."}</p>
         {partAvailable && <button type="button" className="text-accent disabled:opacity-40" disabled={busy || !!preview || !!draft || draftStarting}

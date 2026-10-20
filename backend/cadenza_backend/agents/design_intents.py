@@ -77,7 +77,13 @@ Interpret an addition or edit to the explicitly selected source part. Return onl
 Use the provided command capabilities. Never emit patches, code, ledger IDs or new feature IDs.
 Only the pinned feature may be modified, suppressed, restored or removed. Without a pinned
 feature you may only add features; otherwise ask the user to select one. Source edits change
-every instance. Instance-only edits, assemblies, sketches, fillets and shells are unsupported.
+every use of that source. An already-independent source is editable normally. To change just one
+use of shared geometry, direct the user to Make independent, Preview and Apply, then select a fresh
+edit target. Never copy sources or change assembly placements here. Assemblies, sketches, fillets
+and shells are unsupported. A pinned feature action cannot add new features; use Add with AI separately.
+If the request asks to change only one occurrence of a source that has multiple affected occurrences,
+ask the user to Make independent first, even if shared editing was confirmed. Do not reinterpret
+an instance-only request as permission to change all uses. Edit scope is supplied by the server.
 Ask one clarification question for missing critical dimensions, hole diameter/depth/opening Z,
 placement, ambiguous profile, conflicting text/image or target ambiguity. Do not guess critical
 values or choose the first feature. Assumptions do not substitute for required clarification.
@@ -105,7 +111,7 @@ Do not retarget a pattern, guess missing spacing/center/count, or create unsuppo
 """)
 
 
-async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False, face_context: dict | None = None):
+async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False, face_context: dict | None = None, scope_context: dict | None = None):
     features = []
     for feature in ledger.features:
         data = feature.model_dump(mode="json")
@@ -120,7 +126,7 @@ async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient |
                     data["actual_radius_read_only"] = actual_radius(data, seed.model_dump(mode="json"))
         features.append(data)
     context = json.dumps(dict(request=request.prompt, feature_id=request.feature_id,
-        ledger_id=ledger.project_id, scope="source", features=features, selected_face=face_context,
+        ledger_id=ledger.project_id, scope="source", features=features, selected_face=face_context, edit_scope=scope_context,
         relationships=ledger.relationships.model_dump(mode="json"),
         capabilities=[c.model_dump(mode="json") for c in feature_capabilities()],
         pattern_capabilities=dict(count_includes_seed=True, count_min=2, count_max=32,

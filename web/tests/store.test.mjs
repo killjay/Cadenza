@@ -41,6 +41,7 @@ test("source face actions pin semantic source context and reject stale generatio
   const selection = { source:{ledgerId:"part",revision:0,generation:4,componentPath:["comp_a"]},
     surface_reference:reference, mode:"face", point:[0,0,10],normal:[0,0,1],faceHash:42 };
   s.store.setState({ selectedSourceId:"part", selectedSourcePath:["comp_a"], sourceFaceAvailable:true,
+    primaryLedgerId:"root", ledgers:{...s.store.getState().ledgers,root:{project_id:"root",assembly:{components:[{id:"comp_a",sub_assembly_id:"part"}]}}},
     geometryGeneration:4, model:{source:"source",revision:0}, selections:[selection] });
   s.store.getState().startFacePrompt("edit_feature");
   assert.equal(s.store.getState().featurePromptTarget.face.mode,"edit_feature");
@@ -87,7 +88,7 @@ async function promptSetup() {
   const s = await commandSetup();
   s.store.getState().onFrame(s.response);
   s.store.getState().onFrame({ type: "design.prompt.capabilities", message_id: s.store.getState().featurePromptDiscovery,
-    session_id: "ses_test", version: 1, scope: "source", max_operations: 32 });
+    session_id: "ses_test", version: 1, scope: "source", max_operations: 32, explicit_source_scope: true });
   return s;
 }
 
@@ -113,6 +114,71 @@ async function contextSetup(globals = {}) {
       { id: "comp_left", sub_assembly_id: "part" }, { id: "comp_right", sub_assembly_id: "part" }] } } } });
   return s;
 }
+
+async function scopeSetup(nested = false) {
+  const s = await promptSetup();
+  const inner = { project_id: "inner", assembly: { components: [{ id: "comp_left", sub_assembly_id: "part" },
+    { id: "comp_right", sub_assembly_id: "part" }] } };
+  const root = nested ? { project_id: "root", assembly: { components: [{ id: "comp_first", sub_assembly_id: "inner" },
+    { id: "comp_second", sub_assembly_id: "inner" }] } } : { ...inner, project_id: "root" };
+  const path = nested ? ["comp_first", "comp_left"] : ["comp_left"];
+  s.store.setState({ primaryLedgerId: "root", ledgers: { ...s.store.getState().ledgers, root, ...(nested ? { inner } : {}) },
+    selectedSourceId: "part", selectedSourcePath: path, model: { source: "source" }, partCapabilities: { version: 1, source_context: true } });
+  s.store.getState().startFeaturePrompt("part", "feat_box");
+  return { ...s, path };
+}
+
+for (const nested of [false, true]) test(`source scope requires confirmation for ${nested ? "nested" : "direct"} repeated geometry`, async () => {
+  const s = await scopeSetup(nested), state = s.store.getState();
+  assert.equal(state.featurePromptTarget.sharedConfirmed, false);
+  assert.deepEqual(Array.from(state.featurePromptTarget.componentPath), s.path);
+  assert.equal(state.submitFeaturePrompt("Set height to 12 mm"), false);
+  assert.equal(s.calls.filter(c => c.type === "design.prompt").length, 0);
+  state.confirmSharedSource(true);
+  assert.equal(s.store.getState().submitFeaturePrompt("Set height to 12 mm"), true);
+  const frame = s.calls.at(-1);
+  assert.equal(frame.edit_context.shared_source_confirmed, true);
+  assert.deepEqual(Array.from(frame.edit_context.component_path), s.path);
+  assert.equal(frame.scope, "source"); assert.equal(frame.feature_id, "feat_box");
+  s.store.getState().onFrame({ type: "error", message_id: frame.message_id, code: "AGENT_INVALID_OUTPUT", message: "Try again" });
+  assert.equal(s.store.getState().featurePromptTarget.sharedConfirmed, true);
+});
+
+test("old servers receive no unknown scope fields and cannot accept contextual/shared AI edits", async () => {
+  const shared = await scopeSetup(); shared.store.setState({ explicitSourceScope: false });
+  shared.store.getState().confirmSharedSource(true);
+  assert.equal(shared.store.getState().featurePromptTarget.sharedConfirmed, false);
+  assert.equal(shared.store.getState().submitFeaturePrompt("Edit height"), false);
+  const unique = await promptSetup(); unique.store.setState({ explicitSourceScope: false });
+  unique.store.getState().startFeaturePrompt("part", "feat_box");
+  assert.equal(unique.store.getState().submitFeaturePrompt("Edit height"), true);
+  assert.equal("edit_context" in unique.calls.at(-1), false);
+});
+
+for (const cause of ["revision", "path", "session", "disconnect", "source", "local"]) test(`source acknowledgment cannot survive ${cause} or fall through to general modelling`, async () => {
+  const s = await scopeSetup(); s.store.getState().confirmSharedSource(true);
+  if (cause === "revision") s.store.setState({ sessionRevision: 5 });
+  if (cause === "path") s.store.setState({ selectedSourcePath: ["comp_right"] });
+  if (cause === "session") s.store.setState({ sessionId: "other" });
+  if (cause === "disconnect") s.connection("closed");
+  if (cause === "source") s.store.getState().selectSource(null);
+  if (cause === "local") await s.store.getState().onGeometry({ revision: 0, glb: new ArrayBuffer(1), source: "local" });
+  assert.equal(s.store.getState().submitFeaturePrompt("Edit height"), false);
+  s.store.getState().submitComposer("Edit height");
+  assert.equal(s.prompts.length, 0); assert.equal(s.calls.filter(c => c.type === "design.prompt").length, 0);
+  assert.equal(s.store.getState().featurePromptBlocked, true);
+});
+
+test("Revise keeps the source target but requires shared scope confirmation again", async () => {
+  const s = await scopeSetup(); s.store.getState().confirmSharedSource(true);
+  s.store.getState().submitFeaturePrompt("Set height to 12 mm");
+  s.store.setState({ busy: false, preview: { preview_id: "p", base_revision: 0, prompt: "Set height to 12 mm" } });
+  s.store.getState().decidePreview("cancel", true);
+  s.store.setState({ preview: null, busy: false });
+  await s.store.getState().onGeometry({ revision: 0, glb: new ArrayBuffer(1), source: "source" });
+  assert.equal(s.store.getState().featurePromptTarget.sharedConfirmed, false);
+  assert.equal(s.store.getState().submitFeaturePrompt("Set height to 14 mm"), false);
+});
 
 test("source occurrence requests queue and correlate two uses of the same part, including A-B-A", async () => {
   const s = await contextSetup({ fetch: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(1) }) });

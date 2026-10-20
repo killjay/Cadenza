@@ -12,6 +12,7 @@ export function EditPreview() {
   const disabled = state.busy || state.connection !== "open";
   return <section aria-label="Edit preview" className="flex max-h-[45%] shrink-0 flex-col border-t border-accent p-2.5 text-11">
     <h2 className="font-semibold text-accent">Preview — not applied</h2>
+    <p className="my-1">{preview.summary}</p>
     {preview.independence && <p className="my-2">Make this instance independent as <strong>{preview.independence.name}</strong>.
       Original source {state.ledgers[preview.independence.old_source_id]?.metadata.name || "part"} remains available.
       {" "}{preview.independence.copied_assemblies} parent definition(s) copied. Position and attachments retained.</p>}
@@ -36,7 +37,6 @@ export function EditPreview() {
     <p className="text-ink-3">{preview.attachment_contacts?.length ? `${preview.attachment_contacts.length} declared face contacts verified. Interference checked. Other contacts are not verified.` : "Complete design rebuilt. Contact between mating faces is not verified."}</p>
     <details className="min-h-0 overflow-auto" key={preview.preview_id}>
     <summary className="cursor-pointer py-1">Review details ({preview.changes.length} changes)</summary>
-    <p className="my-1">{preview.summary}</p>
     <p className="text-ink-4">Based on revision {preview.base_revision}. Apply to keep these changes.</p>
     <ul className="my-2 space-y-2">
       {preview.changes.map((change, i) => <li key={i} className="break-words rounded bg-wash p-1.5">

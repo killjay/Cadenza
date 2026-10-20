@@ -25,9 +25,13 @@ test("Python serialized frames compile against complete TypeScript shapes", () =
   const errors = diagnostics(fixtures);
   assert.equal(errors.length, 0, errors.map(e => ts.flattenDiagnosticMessageText(e.messageText, '\n')).join('\n'));
   const olderPartServer = structuredClone(fixtures);
+  delete olderPartServer.server.find(f => f.type === "design.prompt.capabilities").explicit_source_scope;
   delete olderPartServer.server.find(f => f.type === "design.part.capabilities").rename_source;
   delete olderPartServer.server.find(f => f.type === "design.part.capabilities").source_context;
   assert.equal(diagnostics(olderPartServer).length, 0, "source rename is optional for older servers");
+  const badSourceScope = structuredClone(fixtures);
+  badSourceScope.client.find(f => f.message_id === "scope_prompt").edit_context.shared_source_confirmed = "true";
+  assert.ok(diagnostics(badSourceScope).length > 0, "shared source acknowledgment is a boolean");
   const incompleteRename = structuredClone(fixtures);
   delete incompleteRename.client.find(f => f.type === "design.part.rename").ledger_id;
   assert.ok(diagnostics(incompleteRename).length > 0, "rename requires the stable source identity");

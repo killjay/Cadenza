@@ -5,7 +5,8 @@ export * from "@cadenza/shared";
 import type { Vec3, Target, SourceFaceContext, PlanarPick, AssemblyCapabilitiesResponse } from "@cadenza/shared";
 
 export interface FeaturePromptTarget {
-  ledgerId: string; featureId?: string; face?: SourceFaceContext; revision?: number;
+  ledgerId: string; featureId?: string; face?: SourceFaceContext;
+  sessionId: string | null; revision: number; componentPath: string[] | null; sharedConfirmed: boolean;
 }
 
 export interface SurfaceCheck {

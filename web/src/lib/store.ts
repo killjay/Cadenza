@@ -140,6 +140,10 @@ interface State {
   patternDiscovery: string | null;
   featurePromptAvailable: boolean;
   sourceFaceAvailable: boolean;
+  explicitSourceScope: boolean;
+  featurePromptBlocked: boolean;
+  invalidateFeaturePrompt: () => void;
+  confirmSharedSource: (confirmed: boolean) => void;
   startFacePrompt: (mode: SourceFaceContext["mode"]) => void;
   interference: { paths: string[]; text: string } | null;
   featurePromptDiscovery: string | null;
@@ -231,7 +235,26 @@ interface State {
   setActiveLedgerIds: (ids: string[]) => void;
 }
 
+function validFeatureTarget(state: State, target: FeaturePromptTarget): boolean {
+  const ledger = state.ledgers[target.ledgerId];
+  return target.sessionId === state.sessionId && target.revision === state.sessionRevision && !!ledger && !ledger.assembly
+    && (!target.featureId || ledger.features.some(feature => feature.id === target.featureId))
+    && (!target.componentPath || (target.ledgerId === state.selectedSourceId && samePath(target.componentPath, state.selectedSourcePath)
+      && assemblyRows(state.ledgers, state.primaryLedgerId ?? "").some(row => row.path === target.componentPath!.join("/")
+        && row.source?.project_id === target.ledgerId)));
+}
+
 export const useStore = create<State>((set, get) => ({
+  explicitSourceScope: false, featurePromptBlocked: false,
+  invalidateFeaturePrompt() {
+    set(s => ({ featurePromptTarget: null, featurePromptBlocked: s.featurePromptBlocked || !!s.featurePromptTarget }));
+  },
+  confirmSharedSource(confirmed) {
+    const state = get(), target = state.featurePromptTarget;
+    if (!target || !validFeatureTarget(state, target) || !state.explicitSourceScope || state.busy || state.preview
+      || state.draft || state.draftStarting || state.sourceLoading || state.connection !== "open") return;
+    set({ featurePromptTarget: { ...target, sharedConfirmed: confirmed } });
+  },
   assemblyPromptCapabilities: null, assemblyPromptDiscovery: null, assemblyPromptTarget: null,
   assemblyPromptBlocked: false, assemblyPromptRequest: null,
   invalidateAssemblyPrompt() {
@@ -253,7 +276,7 @@ export const useStore = create<State>((set, get) => ({
       || state.selectedSourceId || state.model?.source === "local" || !state.primaryLedgerId
       || !validAssemblyPrompt(state.ledgers, state.primaryLedgerId, context)) return;
     if (!requestNumericDraftDiscard(window)) return;
-    set({ assemblyPromptTarget: context, assemblyPromptBlocked: false, featurePromptTarget: null,
+    set({ assemblyPromptTarget: context, assemblyPromptBlocked: false, featurePromptTarget: null, featurePromptBlocked: false,
       newPartName: null, selections: [], promptOpen: false });
     window.dispatchEvent(new CustomEvent("cadenza:revise", { detail: "" }));
   },
@@ -398,6 +421,7 @@ export const useStore = create<State>((set, get) => ({
     get().invalidateAssemblyPrompt();
     set({ independenceDraft: { path, session: state.sessionId, revision: state.sessionRevision },
       assemblyOwnerId: row.ownerId, assemblyOwnerPath: row.ownerPath });
+    get().invalidateFeaturePrompt();
     get().discoverAssembly();
   },
   cancelIndependence() {
@@ -499,6 +523,7 @@ export const useStore = create<State>((set, get) => ({
     const changed = id !== state.selectedSourceId || !samePath(path, state.selectedSourcePath);
     if (state.sourceRequest && !changed) return;
     if (!preserveInput && changed && !requestNumericDraftDiscard(window)) return;
+    if (changed) get().invalidateFeaturePrompt();
     get().invalidateAssemblyPrompt();
     get().clearGeometry(true);
     const keepIndependence = preserveInput && !changed && !!state.independenceDraft;
@@ -587,7 +612,7 @@ export const useStore = create<State>((set, get) => ({
     const state = get();
     if (state.faceAttachment || state.sourceLoading || state.busy || state.preview || state.draft || state.draftStarting) return;
     if (!requestNumericDraftDiscard(window)) return;
-    set({ newPartName: name?.trim() || null, featurePromptTarget: null, selections: [], assemblyPromptTarget: null, assemblyPromptBlocked: false });
+    set({ newPartName: name?.trim() || null, featurePromptTarget: null, featurePromptBlocked: false, selections: [], assemblyPromptTarget: null, assemblyPromptBlocked: false });
     window.dispatchEvent(new CustomEvent("cadenza:revise", { detail: "" }));
   },
 
@@ -647,6 +672,8 @@ export const useStore = create<State>((set, get) => ({
             set({ draft: null, draftProposal: null, draftEntityId: null, draftFocus: null, draftRequest: null, draftStarting: false, draftError: null, busy: false, phase: null });
           }
           if (state !== "open") {
+            get().invalidateFeaturePrompt();
+            set({ explicitSourceScope: false });
             set({ interference: null, sourceFaceAvailable: false });
             if (get().assemblyPromptRequest) set({ busy: false, phase: null });
             get().invalidateAssemblyPrompt();
@@ -696,6 +723,8 @@ export const useStore = create<State>((set, get) => ({
     }
     switch (frame.type) {
       case "session.ready":
+        get().invalidateFeaturePrompt();
+        set({ explicitSourceScope: false });
         set({ interference: null, sourceFaceAvailable: false });
         get().invalidateAssemblyPrompt();
         set({ assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
@@ -766,7 +795,8 @@ export const useStore = create<State>((set, get) => ({
       case "design.prompt.capabilities":
         if (get().connection !== "open" || frame.session_id !== get().sessionId
           || frame.message_id !== get().featurePromptDiscovery) break;
-        set({ sourceFaceAvailable: frame.source_faces === true, featurePromptDiscovery: null, featurePromptAvailable: frame.version === 1
+        set({ explicitSourceScope: frame.version === 1 && frame.scope === "source" && frame.max_operations === 32 && frame.explicit_source_scope === true,
+          sourceFaceAvailable: frame.source_faces === true, featurePromptDiscovery: null, featurePromptAvailable: frame.version === 1
           && frame.scope === "source" && frame.max_operations === 32 });
         break;
 
@@ -833,6 +863,7 @@ export const useStore = create<State>((set, get) => ({
       case "ledger.updated":
         set({ interference: null });
         if (frame.revision < get().sessionRevision) break;
+        get().invalidateFeaturePrompt();
         {
           const state = get(), applied = state.independenceApply;
           const rows = assemblyRows(frame.store, state.primaryLedgerId ?? "");
@@ -1039,6 +1070,7 @@ export const useStore = create<State>((set, get) => ({
     if (source === "server" && get().assemblyPromptRequest) return;
     if (source === "server" && get().selectedSourceId) return;
     if (source === "local" && (get().preview || get().draft || get().draftStarting)) return;
+    if (source === "local") get().invalidateFeaturePrompt();
     if (source === "local") { set({ interference: null }); get().invalidateAssemblyPrompt(); }
     if (source === "local") set({ independenceDraft: null, independenceApply: null, independentResult: null, faceAttachment: null, assemblySelection: null, assemblyOwnerId: null, assemblyOwnerPath: [], assemblyCapabilities: null, assemblyDiscovery: null, featurePromptTarget: null, featurePromptRequest: null, selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null, sourceView: null, sourceLoading: false, newPartName: null });
     if (source === "server" && revision !== get().sessionRevision) return;
@@ -1064,10 +1096,9 @@ export const useStore = create<State>((set, get) => ({
         assemblyPromptTarget: revised.assemblyPromptTarget && get().primaryLedgerId
           && validAssemblyPrompt(get().ledgers, get().primaryLedgerId!, revised.assemblyPromptTarget)
           ? revised.assemblyPromptTarget : null,
-        featurePromptTarget: revised.featurePromptTarget && get().ledgers[revised.featurePromptTarget.ledgerId]
-          && (!revised.featurePromptTarget.featureId || get().ledgers[revised.featurePromptTarget.ledgerId].features
-            .some(feature => feature.id === revised.featurePromptTarget!.featureId))
-          ? revised.featurePromptTarget : null } : {}),
+        featurePromptTarget: revised.featurePromptTarget && validFeatureTarget(get(), revised.featurePromptTarget)
+          ? { ...revised.featurePromptTarget, sharedConfirmed: false } : null,
+        featurePromptBlocked: !!revised.featurePromptTarget && !validFeatureTarget(get(), revised.featurePromptTarget) } : {}),
       surfaceChecks: {}, surfaceChecking: null,
       promptOpen: false,
       verify: null,
@@ -1350,7 +1381,7 @@ export const useStore = create<State>((set, get) => ({
     if (state.faceAttachment || state.sourceLoading || state.busy || state.preview || state.draft || state.draftStarting) return;
     if (ledgerId === null) {
       if (!requestNumericDraftDiscard(window)) return;
-      set({ featurePromptTarget: null }); return;
+      set({ featurePromptTarget: null, featurePromptBlocked: false }); return;
     }
     const ledger = state.ledgers[ledgerId], feature = ledger?.features.find(f => f.id === featureId);
     if (!state.featurePromptAvailable || !state.capabilities || !state.agentsAvailable || state.connection !== "open"
@@ -1358,9 +1389,12 @@ export const useStore = create<State>((set, get) => ({
       || (featureId && (!feature || (isPattern(feature) ? !state.patternCapabilities || !!patternReason(feature, ledger)
         : !simpleFeature(feature) || !state.capabilities.features.some(c => c.kind === feature.kind))))) return;
     if (!requestNumericDraftDiscard(window)) return;
-    set({ interference: null, newPartName: null, featurePromptTarget: { ledgerId, ...(featureId ? { featureId } : {}) }, selections: [],
+    set({ interference: null, newPartName: null, featurePromptBlocked: false,
+      featurePromptTarget: { ledgerId, ...(featureId ? { featureId } : {}), sessionId: state.sessionId, revision: state.sessionRevision,
+        componentPath: state.selectedSourceId === ledgerId && state.selectedSourcePath ? [...state.selectedSourcePath] : null, sharedConfirmed: false }, selections: [],
       assemblyPromptTarget: null, assemblyPromptBlocked: false });
     window.dispatchEvent(new CustomEvent("cadenza:revise", { detail: "" }));
+    window.dispatchEvent(new Event("cadenza:assistant"));
   },
 
   submitFeaturePrompt(text) {
@@ -1369,6 +1403,17 @@ export const useStore = create<State>((set, get) => ({
       || state.connection !== "open" || state.busy || state.preview || state.draft || state.draftStarting
       || state.model?.source === "local" || !prompt || prompt.length > state.limits.max_prompt_chars) return false;
     const ledger = state.ledgers[target.ledgerId], feature = ledger?.features.find(f => f.id === target.featureId);
+    if (!validFeatureTarget(state, target)) {
+      get().invalidateFeaturePrompt();
+      get().say({ kind: "status", text: "The part target changed. Choose the AI edit action again." }); return false;
+    }
+    const uses = assemblyRows(state.ledgers, state.primaryLedgerId ?? "").filter(row => row.source?.project_id === target.ledgerId);
+    if ((uses.length > 1 || target.componentPath) && !state.explicitSourceScope) {
+      get().say({ kind: "status", text: "This server needs an update for contextual or shared AI edits. Numeric controls remain available." }); return false;
+    }
+    if (uses.length > 1 && !target.sharedConfirmed) {
+      get().say({ kind: "status", text: "Confirm shared geometry editing, or make the selected part independent first." }); return false;
+    }
     if (!ledger || ledger.assembly || (target.featureId && (!feature || (isPattern(feature) ? !state.patternCapabilities || !!patternReason(feature, ledger)
       : !simpleFeature(feature) || !state.capabilities.features.some(c => c.kind === feature.kind))))) return false;
     if (target.face && (!state.sourceFaceAvailable || target.revision !== state.sessionRevision
@@ -1381,6 +1426,7 @@ export const useStore = create<State>((set, get) => ({
         featurePromptTarget: target } });
     socket.send({ type: "design.prompt", message_id: messageId, base_revision: state.sessionRevision,
       ledger_id: target.ledgerId, feature_id: target.featureId ?? null, scope: "source", prompt,
+      ...(state.explicitSourceScope ? { edit_context: { component_path: target.componentPath, shared_source_confirmed: target.sharedConfirmed } } : {}),
       ...(target.face ? { face: target.face } : {}),
       images: state.attachments.map(({ media_type, data, name }) => ({ media_type, data, name })) });
     get().say({ kind: "user", text: prompt, images: state.attachments.map(a => a.previewUrl) });
@@ -1421,6 +1467,9 @@ export const useStore = create<State>((set, get) => ({
       get().say({ kind: "status", text: "The assembly target changed. Select an AI target again or clear assembly mode." }); return;
     }
     if (get().newPartName) { get().submitPartPrompt(text); return; }
+    if (get().featurePromptBlocked) {
+      get().say({ kind: "status", text: "The part target changed. Choose an AI edit action again or clear part mode." }); return;
+    }
     if (get().sourceLoading) return;
     if (get().selectedSourceId && !get().featurePromptTarget) {
       get().say({ kind: "status", text: "Choose Add with AI or select a feature to edit in this part." }); return;

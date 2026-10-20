@@ -44,6 +44,7 @@ export function IndependentResult() {
   if (!result) return null;
   return <div role="status" className="mb-3 rounded border border-accent p-2">
     <p>{result.name} is independent. The original source is retained.</p>
+    <p>Choose a fresh feature or face action to edit it; previous AI requests are not resubmitted.</p>
     <button className={buttonClass} disabled={state.busy || !!state.preview || !!state.draft || state.draftStarting || state.sourceLoading || state.connection !== "open"}
       onClick={() => state.selectSource(result.new_source_id, false, result.component_path)}>Edit independent part</button>
   </div>;

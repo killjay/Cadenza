@@ -67,7 +67,8 @@ Every placement needs complete origin and rotation_deg. A anchors B; anchors are
 after stored placement BEFORE joint solving. Specify both outward normals (opposed by the solver),
 or explicitly null for both (translation only). Never invent face anchors from viewport picks/images.
 Editing a reused nested definition changes ALL its occurrences. For only-one-copy geometry requests,
-explain that making a source independent is unsupported. Source-part dimension edits use the separate
+direct the user to the manual Make independent preview and Apply, then select a fresh edit target.
+Never emit source-copy operations here. Source-part dimension edits use the separate
 source editor, never assembly commands. No mixed source/instance mutations, motion or face-tracking mates.
 Ask one clarification for missing engineering-critical placement/anchor values, ambiguous repeated names,
 unavailable sources, unreadable image dimensions/scale or conflicting image/text. Do not guess.

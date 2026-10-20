@@ -99,7 +99,7 @@ async def setup_node(state: AgentState) -> dict:
             if identity is not None and identity.feature_kind == "extrude":
                 if identity.component_path and not re.match(r"\s*(?:all instances|every instance|shared source)\s*:", state["prompt"], re.I):
                     raise CadenzaError(ErrorCode.AGENT_NEEDS_CLARIFICATION,
-                        "This part uses shared source geometry. To change every instance, begin the request with 'All instances:'. Instance-only shape editing is not supported yet.")
+                        "This route edits source geometry. To change every use, begin the request with 'All instances:'. To edit only one part, select it and use Make independent, Preview and Apply, then choose its feature edit action.")
                 if identity.entity_id is None and not any(word in state["prompt"].lower() for word in ("thick", "depth", "height", "width", "length", "extrus")):
                     raise CadenzaError(ErrorCode.AGENT_NEEDS_CLARIFICATION,
                         "You selected an extrusion cap. Which dimension should change? Select a bore to edit a particular opening.")

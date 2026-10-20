@@ -37,17 +37,31 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
     if request.images and not get_settings().vision_available and client is None:
         raise CadenzaError(ErrorCode.AGENT_UNAVAILABLE, "No image-capable provider is configured.")
     base = session.snapshot()
+    context_path = (request.edit_context.component_path if request.edit_context else None) or (request.face.component_path if request.face else None)
+    try:
+        uses = [row for row in assembly_instances(base, session.primary_ledger_id) if row.source_id == request.ledger_id]
+    except ValueError as exc:
+        raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "The assembly context cannot be resolved. Repair it before editing.") from exc
+    selected = next((row for row in uses if row.path == tuple(context_path)), None) if context_path else None
+    if context_path is not None and selected is None:
+        raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "This occurrence no longer uses the selected part. Select it again.")
+    confirmed = bool(request.edit_context and request.edit_context.shared_source_confirmed)
+    action = request.face.mode if request.face else "edit_feature" if request.feature_id else "add_to_part"
+    event("source_scope.admitted", ledger_id=request.ledger_id, component_path=context_path,
+        revision=request.base_revision, action=action, affected_count=len(uses), shared_source_confirmed=confirmed,
+        allowed=len(uses) <= 1 or confirmed)
+    if len(uses) > 1 and not confirmed:
+        await emit(AgentMessage(message_id=request.message_id, needs_clarification=True,
+            text=f"{source.ledger.metadata.name} is used by {len(uses)} placed parts. Confirm shared geometry editing in the Assistant, or use Make independent for one selected part."))
+        await emit(AgentStatus(message_id=request.message_id, phase=AgentPhase.DONE, detail="Choose the edit scope before continuing."))
+        return
+    scope_context = dict(source_name=source.ledger.metadata.name, action=action,
+        selected_occurrence=dict(path=list(selected.path), names=list(selected.names)) if selected else None,
+        affected_occurrences=[dict(path=list(row.path), names=list(row.names)) for row in uses],
+        shared_source_confirmed=confirmed, units="mm", coordinate_frame="source_local")
     face_context = None
     if request.face:
         face = request.face
-        if face.component_path is not None:
-            try:
-                valid = any(row.path == tuple(face.component_path) and row.source_id == request.ledger_id
-                    for row in assembly_instances(base, session.primary_ledger_id))
-            except ValueError:
-                valid = False
-            if not valid:
-                raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "This occurrence no longer uses the selected part. Select it again.")
         resolved = await inspect(source.ledger, dict(query_type="capture_surface_reference",
             point=face.point, normal=face.normal), base)
         event("source_face.resolved", ledger_id=request.ledger_id, component_path=face.component_path,
@@ -61,10 +75,8 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
             raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed while checking the surface. Select it again.")
     await emit(AgentStatus(message_id=request.message_id, phase=AgentPhase.THINKING, detail="Interpreting the selected source edit."))
     try:
-        if face_context:
-            result = await interpret(request, source.ledger.model_copy(deep=True), client, face_context=face_context)
-        else:
-            result = await interpret(request, source.ledger.model_copy(deep=True), client)
+        result = await interpret(request, source.ledger.model_copy(deep=True), client,
+            face_context=face_context, scope_context=scope_context)
     except AINotConfigured as exc:
         raise CadenzaError(ErrorCode.AGENT_UNAVAILABLE, "No AI provider is configured.") from exc
     except AIProviderError as exc:
@@ -77,17 +89,19 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
         raise CadenzaError(ErrorCode.AGENT_INVALID_OUTPUT, "The interpreter did not return a valid supported proposal. Revise the request.") from exc
     if session.snapshot() != base or session.revision != request.base_revision:
         raise CadenzaError(ErrorCode.REVISION_CONFLICT, "The design changed during interpretation. Request a new preview.")
+    if (request.face and request.face.mode == "edit_feature" and not isinstance(result, (Clarification, Unsupported))
+            and any(op.op.startswith("add_") for op in result.operations)):
+        raise CadenzaError(ErrorCode.BAD_MESSAGE, "This action edits the selected feature. Choose Add on this face for additions.")
     if isinstance(result, (Clarification, Unsupported)):
         await emit(AgentMessage(message_id=request.message_id,
             text=result.question if isinstance(result, Clarification) else result.reason,
             needs_clarification=isinstance(result, Clarification)))
-    elif any(op.op not in ("add_feature", "add_linear_pattern", "add_circular_pattern") and op.feature_id != request.feature_id for op in result.operations):
+    elif any((request.feature_id is not None if op.op in ("add_feature", "add_linear_pattern", "add_circular_pattern")
+              else request.feature_id is None or op.feature_id != request.feature_id) for op in result.operations):
         await emit(AgentMessage(message_id=request.message_id, needs_clarification=True,
-            text="Select the exact feature to modify using Edit with AI. Other existing features cannot change in this request."))
+            text="Edit with AI changes only the selected feature. Use Add with AI for additions; other existing features cannot change in this request."))
     else:
         if request.face:
-            if request.face.mode == "edit_feature" and any(op.op.startswith("add_") for op in result.operations):
-                raise CadenzaError(ErrorCode.BAD_MESSAGE, "This action edits the selected feature. Choose Add on this face for additions.")
             if request.face.mode == "add_on_face":
                 check = await inspect(source.ledger, dict(query_type="validate_face_additions",
                     reference=request.face.reference.model_dump(mode="json"),
@@ -101,5 +115,10 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
             ledger_id=request.ledger_id, scope="source", operations=result.operations)
         await handle_design_command(session, command, emit, prompt=request.prompt,
             assumptions=result.assumptions, verification_scope=(request.ledger_id, request.feature_id),
-            context_path=request.face.component_path if request.face else None)
+            context_path=context_path, scope_summary=(
+                f"{'Edit selected feature' if request.feature_id else 'Add on selected face' if request.face else 'Add to part'}: {source.ledger.metadata.name}. "
+                + (f"Selected part: {' / '.join(selected.names)}. " if selected else "")
+                + (f"Shared geometry: all {len(uses)} placed uses change on Apply. " if len(uses) > 1 else
+                   "Geometry used by one placed part. " if uses else "Standalone or unplaced source geometry. ")
+                + "Attachments may reposition connected parts. Review before Apply."))
     await emit(AgentStatus(message_id=request.message_id, phase=AgentPhase.DONE, detail="Review the response before continuing."))

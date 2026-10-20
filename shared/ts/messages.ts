@@ -128,6 +128,7 @@ export interface DesignPrompt {
   type: "design.prompt"; message_id: string; base_revision: number; ledger_id: string;
   feature_id?: string | null; scope: "source"; prompt: string; images?: InlineImage[];
   face?: SourceFaceContext | null;
+  edit_context?: { component_path?: string[] | null; shared_source_confirmed: boolean } | null;
 }
 export interface PromptCapabilitiesRequest { type: "design.prompt.capabilities"; message_id: string; }
 export type AssemblyPromptTarget = { kind: "definition" }
@@ -150,6 +151,7 @@ export interface PromptCapabilitiesResponse {
   type: "design.prompt.capabilities"; message_id: string; session_id: string;
   version: 1; scope: "source"; max_operations: 32;
   source_faces?: true;
+  explicit_source_scope?: true;
 }
 export interface CapabilitiesResponse {
   type: "design.capabilities"; message_id: string; session_id: string; version: 1;
