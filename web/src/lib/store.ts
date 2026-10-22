@@ -24,6 +24,9 @@ import type { AssemblyCapabilitiesResponse, AssemblyOperation, AssemblyPromptTar
 import { assemblyOwner, assemblyRows, validAssemblyPrompt } from "./assembly";
 import type { AssemblyPromptContext } from "./assembly";
 import { commandAvailable, simpleFeature, isPattern, patternReason, requestNumericDraftDiscard } from "./featureCommands";
+import type { GearCapabilitiesResponse } from "./types";
+import { gearReason } from "./gear";
+import { revolveReason } from "./revolve";
 
 export interface ConvItem {
   id: string;
@@ -117,6 +120,9 @@ interface State {
   primaryLedgerId: string | null;
   partCapabilities: PartCapabilitiesResponse | null;
   partDiscovery: string | null;
+  partVersion: 1 | 2;
+  gearCapabilities: GearCapabilitiesResponse | null;
+  gearDiscovery: string | null;
   partRequest: string | null;
   newPartName: string | null;
   selectedSourceId: string | null;
@@ -153,6 +159,7 @@ interface State {
   submitFeaturePrompt: (text: string) => boolean;
   capabilities: CapabilitiesResponse | null;
   capabilityRequest: string | null;
+  capabilityVersion: 1 | 2;
   previewFeatureCommand: (ledgerId: string, operations: CommandOperation[]) => void;
   draft: SketchDraft | null;
   draftProposal: DraftProposal | null;
@@ -235,6 +242,7 @@ interface State {
   setActiveLedgerIds: (ids: string[]) => void;
 }
 
+
 function validFeatureTarget(state: State, target: FeaturePromptTarget): boolean {
   const ledger = state.ledgers[target.ledgerId];
   return target.sessionId === state.sessionId && target.revision === state.sessionRevision && !!ledger && !ledger.assembly
@@ -304,11 +312,11 @@ export const useStore = create<State>((set, get) => ({
   assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
   assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
   independenceDraft: null, independenceApply: null, independentResult: null,
-  primaryLedgerId: null, partCapabilities: null, partDiscovery: null, partRequest: null, newPartName: null,
+  primaryLedgerId: null, partCapabilities: null, partDiscovery: null, partVersion: 2, partRequest: null, newPartName: null,
   selectedSourceId: null, selectedSourcePath: null, sourceRequest: null, sourceView: null, sourceLoading: false, sourceError: null,
   sourceContextWarning: null, showContext: true, toggleContext: () => set(s => ({ showContext: !s.showContext })),
-  capabilities: null, capabilityRequest: null,
-  patternCapabilities: null, patternDiscovery: null,
+  capabilities: null, capabilityRequest: null, capabilityVersion: 2,
+  patternCapabilities: null, patternDiscovery: null, gearCapabilities: null, gearDiscovery: null,
   sourceFaceAvailable: false, interference: null,
   featurePromptAvailable: false, featurePromptDiscovery: null, featurePromptRequest: null, featurePromptTarget: null,
   draft: null, draftProposal: null, draftEntityId: null, draftFocus: null, draftRequest: null, draftStarting: false, draftError: null,
@@ -590,10 +598,12 @@ export const useStore = create<State>((set, get) => ({
     const state = get();
     if (!state.partCapabilities || state.sourceLoading || state.busy || state.preview || state.draft
       || state.draftStarting || state.connection !== "open" || !name.trim() || !operations.length) return;
+    if (operations.some(op => op.op === "add_gear" && (state.partCapabilities?.version !== 2 || !state.gearCapabilities)
+      || op.op === "add_revolve" && (state.partCapabilities?.version !== 2 || !state.capabilities?.revolve))) return;
     const messageId = `part_${nextId()}`;
     set({ interference: null, partRequest: messageId, busy: true, phase: "Building new part preview", previewInput: null });
     socket.send({ type: "design.part.create", message_id: messageId, base_revision: state.sessionRevision,
-      name: name.trim(), operations });
+      name: name.trim(), operations, ...(state.partCapabilities.version === 2 ? { creation_version: 2 } : {}) });
   },
 
   renamePart(ledgerId, name) {
@@ -626,7 +636,7 @@ export const useStore = create<State>((set, get) => ({
       previewInput: { selections: [], attachments: state.attachments, activeLedgerIds: state.activeLedgerIds,
         newPartName: state.newPartName } });
     socket.send({ type: "design.part.prompt", message_id: messageId, base_revision: state.sessionRevision,
-      name: state.newPartName, prompt, images: state.attachments.map(({ media_type, data, name }) => ({ media_type, data, name })) });
+      name: state.newPartName, prompt, ...(state.partCapabilities.version === 2 && state.gearCapabilities && state.capabilities?.revolve ? { creation_version: 2 } : {}), images: state.attachments.map(({ media_type, data, name }) => ({ media_type, data, name })) });
     get().say({ kind: "user", text: `New part ${state.newPartName}: ${prompt}`, images: state.attachments.map(a => a.previewUrl) });
     return true;
   },
@@ -682,12 +692,12 @@ export const useStore = create<State>((set, get) => ({
             set({ assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
               assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
               independenceDraft: null, independenceApply: null, independentResult: null,
-              partCapabilities: null, partDiscovery: null, partRequest: null, newPartName: null,
+              partCapabilities: null, partDiscovery: null, partVersion: 2, partRequest: null, newPartName: null,
               selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null, sourceView: null, sourceLoading: false, sourceError: null });
           }
           if (state !== "open") previewRequest++;
           set({ connection: state, connectionDetail: detail ?? "",
-            ...(state !== "open" ? { surfaceChecks: {}, surfaceChecking: null, capabilities: null, capabilityRequest: null, patternCapabilities: null, patternDiscovery: null,
+            ...(state !== "open" ? { surfaceChecks: {}, surfaceChecking: null, capabilities: null, capabilityRequest: null, patternCapabilities: null, patternDiscovery: null, gearCapabilities: null, gearDiscovery: null,
               featurePromptAvailable: false, featurePromptDiscovery: null, featurePromptRequest: null, featurePromptTarget: null } : {}) });
         },
         onFrame: (frame) => get().onFrame(frame),
@@ -702,24 +712,26 @@ export const useStore = create<State>((set, get) => ({
       const id = "message_id" in frame ? frame.message_id : null;
       const state = get();
       const assemblyPrompt = state.assemblyPromptRequest;
+      if (id?.startsWith("gearcap_") && (id !== state.gearDiscovery || state.connection !== "open")) return;
+      if (id?.startsWith("partcap_") && (id !== state.partDiscovery || state.connection !== "open")) return;
       if (assemblyPrompt && frame.type !== "error" && id !== assemblyPrompt.id) return;
       if (id?.startsWith("e3cap_") && (id !== state.assemblyPromptDiscovery || state.connection !== "open")) return;
       if (id?.startsWith("e3_") && (!assemblyPrompt || id !== assemblyPrompt.id || state.connection !== "open"
         || assemblyPrompt.session !== state.sessionId || assemblyPrompt.revision !== state.sessionRevision
         || assemblyPrompt.context !== state.assemblyPromptTarget)) return;
       if (assemblyPrompt && id && id !== assemblyPrompt.id && ![state.assemblyPromptDiscovery, state.assemblyDiscovery,
-        state.partDiscovery, state.featurePromptDiscovery, state.patternDiscovery, state.capabilityRequest].includes(id)) return;
+        state.partDiscovery, state.featurePromptDiscovery, state.gearDiscovery, state.patternDiscovery, state.capabilityRequest].includes(id)) return;
       if (id?.startsWith("asm_") && (id !== state.assemblyRequest || state.connection !== "open")) return;
       if (id?.startsWith("part_") && (id !== state.partRequest || state.connection !== "open")) return;
       if (id?.startsWith("view_") && (id !== state.sourceRequest?.id || state.connection !== "open")) return;
       if (id?.startsWith("b3_") && (id !== state.featurePromptRequest || state.connection !== "open")) return;
       if (state.assemblyRequest && id && id !== state.assemblyRequest && id !== state.assemblyDiscovery
-        && id !== state.partDiscovery && id !== state.featurePromptDiscovery && id !== state.patternDiscovery
+        && id !== state.partDiscovery && id !== state.featurePromptDiscovery && id !== state.gearDiscovery && id !== state.patternDiscovery
         && id !== state.capabilityRequest && id !== state.assemblyPromptDiscovery) return;
       if (state.partRequest && id && id !== state.partRequest && id !== state.partDiscovery
-        && id !== state.featurePromptDiscovery && id !== state.patternDiscovery && id !== state.capabilityRequest && id !== state.assemblyDiscovery && id !== state.assemblyPromptDiscovery) return;
+        && id !== state.featurePromptDiscovery && id !== state.gearDiscovery && id !== state.patternDiscovery && id !== state.capabilityRequest && id !== state.assemblyDiscovery && id !== state.assemblyPromptDiscovery) return;
       if (state.featurePromptRequest && id && id !== state.featurePromptRequest
-        && id !== state.featurePromptDiscovery && id !== state.capabilityRequest && id !== state.patternDiscovery && id !== state.partDiscovery && id !== state.assemblyDiscovery && id !== state.assemblyPromptDiscovery) return;
+        && id !== state.featurePromptDiscovery && id !== state.capabilityRequest && id !== state.gearDiscovery && id !== state.patternDiscovery && id !== state.partDiscovery && id !== state.assemblyDiscovery && id !== state.assemblyPromptDiscovery) return;
     }
     switch (frame.type) {
       case "session.ready":
@@ -730,10 +742,10 @@ export const useStore = create<State>((set, get) => ({
         set({ assemblyCapabilities: null, assemblyDiscovery: null, assemblyRequest: null, assemblySelection: null,
           assemblyOwnerId: null, assemblyOwnerPath: [], assemblyVersion: 4, faceAttachment: null,
           independenceDraft: null, independenceApply: null, independentResult: null });
-        set({ primaryLedgerId: frame.primary_ledger_id ?? null, partCapabilities: null, partDiscovery: null,
+        set({ primaryLedgerId: frame.primary_ledger_id ?? null, partCapabilities: null, partDiscovery: null, partVersion: 2,
           partRequest: null, newPartName: null, selectedSourceId: null, selectedSourcePath: null, sourceContextWarning: null, sourceRequest: null,
           sourceView: null, sourceLoading: false, sourceError: null });
-        set({ capabilities: null, capabilityRequest: null, featurePromptAvailable: false, patternCapabilities: null, patternDiscovery: null,
+        set({ capabilities: null, capabilityRequest: null, featurePromptAvailable: false, patternCapabilities: null, patternDiscovery: null, gearCapabilities: null, gearDiscovery: null,
           featurePromptDiscovery: null, featurePromptRequest: null, featurePromptTarget: null });
         if (get().draft) get().say({ kind: "status", text: "Session restored. The unfinished sketch was discarded; accepted geometry is preserved." });
         set({ draft: null, draftProposal: null, draftEntityId: null, draftFocus: null, draftRequest: null, draftStarting: false, draftError: null });
@@ -760,8 +772,8 @@ export const useStore = create<State>((set, get) => ({
         });
         {
           const messageId = nextId();
-          set({ capabilityRequest: messageId });
-          socket.send({ type: "design.capabilities", message_id: messageId });
+          set({ capabilityRequest: messageId, capabilityVersion: 2 });
+          socket.send({ type: "design.capabilities", message_id: messageId, version: 2 });
         }
         get().discoverAssembly();
         if (frame.agents_available === false) {
@@ -775,7 +787,10 @@ export const useStore = create<State>((set, get) => ({
       case "design.capabilities":
         if (get().connection !== "open" || frame.session_id !== get().sessionId
           || frame.message_id !== get().capabilityRequest) break;
-        set({ capabilityRequest: null, capabilities: frame.version === 1 && frame.scope === "source"
+        set({ capabilityRequest: null, capabilities: ((frame.version === 1 && frame.revolve === undefined) || (frame.version === 2
+          && frame.revolve?.axis === "+Y" && frame.revolve.profile_plane === "XY"
+          && frame.revolve.angle_unit === "deg" && frame.revolve.max_vertices === 64
+          && JSON.stringify(frame.revolve.operations) === '["add_revolve","update_revolve"]')) && frame.scope === "source"
           && frame.length_unit === "mm" && Array.isArray(frame.features)
           && frame.features.every(c => Array.isArray(c.dimensions) && Array.isArray(c.origin_axes)
             && Array.isArray(c.create_operations) && typeof c.suppress === "boolean" && typeof c.remove === "boolean") ? frame : null });
@@ -783,9 +798,12 @@ export const useStore = create<State>((set, get) => ({
           const messageId = nextId();
           set({ featurePromptDiscovery: messageId });
           socket.send({ type: "design.prompt.capabilities", message_id: messageId });
-          const partId = nextId();
-          set({ partDiscovery: partId });
-          socket.send({ type: "design.part.capabilities", message_id: partId });
+          const partId = `partcap_${nextId()}`;
+          set({ partDiscovery: partId, partVersion: 2 });
+          socket.send({ type: "design.part.capabilities", message_id: partId, version: 2 });
+          const gearId = `gearcap_${nextId()}`;
+          set({ gearDiscovery: gearId });
+          socket.send({ type: "design.gear.capabilities", message_id: gearId });
           const patternId = nextId();
           set({ patternDiscovery: patternId });
           socket.send({ type: "design.pattern.capabilities", message_id: patternId });
@@ -800,6 +818,13 @@ export const useStore = create<State>((set, get) => ({
           && frame.scope === "source" && frame.max_operations === 32 });
         break;
 
+      case "design.gear.capabilities":
+        if (get().connection !== "open" || frame.session_id !== get().sessionId || frame.message_id !== get().gearDiscovery) break;
+        set({ gearDiscovery: null, gearCapabilities: frame.version === 1 && frame.scope === "source"
+          && frame.length_unit === "mm" && frame.axis === "+Z" && frame.additive_only === true
+          && frame.teeth_min === 3 && frame.teeth_max === 128 && frame.max_active_gears === 1
+          && JSON.stringify(frame.operations) === '["add_gear","update_gear"]' ? frame : null });
+        break;
       case "design.pattern.capabilities":
         if (get().connection !== "open" || frame.session_id !== get().sessionId || frame.message_id !== get().patternDiscovery) break;
         set({ patternDiscovery: null, patternCapabilities: frame.version === 1 && frame.scope === "source"
@@ -837,9 +862,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case "design.part.capabilities":
         if (get().connection !== "open" || frame.session_id !== get().sessionId || frame.message_id !== get().partDiscovery) break;
-        set({ partDiscovery: null, partCapabilities: frame.version === 1 && frame.source_view === true
+        set({ partDiscovery: null, partCapabilities: (frame.version === 1 || frame.version === 2) && frame.source_view === true
           && frame.max_sources === 32 && frame.max_operations === 32
-          && JSON.stringify(frame.starter_kinds) === JSON.stringify(["box", "cylinder"]) ? frame : null });
+          && JSON.stringify(frame.starter_kinds) === JSON.stringify(frame.version === 2 ? ["box", "cylinder", "revolve", "gear"] : ["box", "cylinder"]) ? frame : null });
         break;
       case "design.part.view_ready":
         void get().loadSourceView(frame);
@@ -995,6 +1020,7 @@ export const useStore = create<State>((set, get) => ({
             { id: state.assemblyDiscovery, type: "design.assembly.capabilities", reset: { assemblyDiscovery: null, assemblyCapabilities: null } },
             { id: state.partDiscovery, type: "design.part.capabilities", reset: { partDiscovery: null, partCapabilities: null } },
             { id: state.featurePromptDiscovery, type: "design.prompt.capabilities", reset: { featurePromptDiscovery: null, featurePromptAvailable: false } },
+            { id: state.gearDiscovery, type: "design.gear.capabilities", reset: { gearDiscovery: null, gearCapabilities: null } },
             { id: state.patternDiscovery, type: "design.pattern.capabilities", reset: { patternDiscovery: null, patternCapabilities: null } },
             { id: state.capabilityRequest, type: "design.capabilities", reset: { capabilityRequest: null, capabilities: null } },
           ].filter(d => d.id);
@@ -1002,7 +1028,9 @@ export const useStore = create<State>((set, get) => ({
           // Pydantic lists all EXPECTED tags after the rejected input tag.
           // Matching those names would disable unrelated optional capabilities.
           const rejectedType = frame.detail?.match(/(?:Input tag|Unknown(?: input tag)?)\s+['"]?([a-z][a-z0-9_.]+)/i)?.[1]
-            ?? (/^design\.assembly\.capabilities\.(?:version|ledger_id|owner_path)\s*$/m.test(frame.detail ?? "") ? "design.assembly.capabilities" : undefined);
+            ?? (/^design\.assembly\.capabilities\.(?:version|ledger_id|owner_path)\s*$/m.test(frame.detail ?? "") ? "design.assembly.capabilities"
+              : /^design\.part\.capabilities\.version\s*$/m.test(frame.detail ?? "") ? "design.part.capabilities"
+              : /^design\.capabilities\.version\s*$/m.test(frame.detail ?? "") ? "design.capabilities" : undefined);
           const exact = !frame.message_id && frame.code === "BAD_MESSAGE"
             ? discoveries.filter(d => d.type === rejectedType) : [];
           if (rejectedType === "design.assembly.prompt.capabilities" && !state.assemblyPromptDiscovery) break;
@@ -1011,6 +1039,18 @@ export const useStore = create<State>((set, get) => ({
             : !frame.message_id && !rejectedType && frame.code === "BAD_MESSAGE" && (!state.busy || /capabilit/i.test(frame.detail ?? "")) ? discoveries : [];
           if (rejected.length) {
             rejected.forEach(d => set(d.reset));
+            if ((identified.length || exact.length) && rejected.some(d => d.type === "design.part.capabilities")
+              && state.partVersion === 2 && frame.code === "BAD_MESSAGE") {
+              const messageId = `partcap_${nextId()}`;
+              set({ partVersion: 1, partDiscovery: messageId });
+              socket.send({ type: "design.part.capabilities", message_id: messageId });
+            }
+            if ((identified.length || exact.length) && rejected.some(d => d.type === "design.capabilities")
+              && state.capabilityVersion === 2 && frame.code === "BAD_MESSAGE") {
+              const messageId = nextId();
+              set({ capabilityVersion: 1, capabilityRequest: messageId });
+              socket.send({ type: "design.capabilities", message_id: messageId });
+            }
             if ((identified.length || exact.length) && rejected.some(d => d.type === "design.assembly.capabilities")
               && state.assemblyVersion !== 1 && (state.assemblyVersion >= 3 || state.assemblyOwnerPath.length === 0) && frame.code === "BAD_MESSAGE") {
               set({ assemblyVersion: state.assemblyVersion === 4 ? 3 : state.assemblyVersion === 3 ? 2 : 1 }); get().discoverAssembly();
@@ -1287,7 +1327,7 @@ export const useStore = create<State>((set, get) => ({
     const state = get(), ledger = state.ledgers[ledgerId];
     if (!ledger || !state.capabilities || state.busy || state.draft || state.draftStarting || state.preview
       || state.connection !== "open" || state.model?.source === "local" || !operations.length || operations.length > 32) return;
-    if (!operations.every(op => commandAvailable(ledger, state.capabilities!, op, state.patternCapabilities))) return;
+    if (!operations.every(op => commandAvailable(ledger, state.capabilities!, op, state.patternCapabilities, state.gearCapabilities))) return;
     set({ interference: null, busy: true, phase: "Building feature preview", previewInput: null, reviseInput: null });
     socket.send({ type: "design.command", message_id: nextId(), base_revision: state.sessionRevision,
       ledger_id: ledgerId, scope: "source", operations });
@@ -1387,6 +1427,8 @@ export const useStore = create<State>((set, get) => ({
     if (!state.featurePromptAvailable || !state.capabilities || !state.agentsAvailable || state.connection !== "open"
       || state.model?.source === "local" || !ledger || ledger.assembly
       || (featureId && (!feature || (isPattern(feature) ? !state.patternCapabilities || !!patternReason(feature, ledger)
+        : feature.kind === "gear" ? !state.gearCapabilities || !!gearReason(feature, ledger)
+        : feature.kind === "revolve" ? !state.capabilities.revolve || !!revolveReason(feature)
         : !simpleFeature(feature) || !state.capabilities.features.some(c => c.kind === feature.kind))))) return;
     if (!requestNumericDraftDiscard(window)) return;
     set({ interference: null, newPartName: null, featurePromptBlocked: false,
@@ -1415,6 +1457,8 @@ export const useStore = create<State>((set, get) => ({
       get().say({ kind: "status", text: "Confirm shared geometry editing, or make the selected part independent first." }); return false;
     }
     if (!ledger || ledger.assembly || (target.featureId && (!feature || (isPattern(feature) ? !state.patternCapabilities || !!patternReason(feature, ledger)
+      : feature.kind === "gear" ? !state.gearCapabilities || !!gearReason(feature, ledger)
+        : feature.kind === "revolve" ? !state.capabilities.revolve || !!revolveReason(feature)
       : !simpleFeature(feature) || !state.capabilities.features.some(c => c.kind === feature.kind))))) return false;
     if (target.face && (!state.sourceFaceAvailable || target.revision !== state.sessionRevision
       || target.ledgerId !== state.selectedSourceId || !samePath(target.face.component_path ?? null, state.selectedSourcePath))) {

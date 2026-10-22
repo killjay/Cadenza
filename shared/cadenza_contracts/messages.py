@@ -43,10 +43,11 @@ from cadenza_contracts.assembly_commands import AssemblyCommand, AssemblyCapabil
 from cadenza_contracts.assembly_commands import (AssemblyPromptTarget, ComponentId, StrictModel,
     AssemblyPromptCapabilitiesRequest, AssemblyPromptCapabilitiesResponse)
 from cadenza_contracts.part_commands import (PartRequest, PartCreate, PartRename, PartViewRequest, PartViewReady,
-    PartCapabilitiesRequest, PartCapabilitiesResponse, OccurrencePath, RigidMatrix)
+    PartCapabilitiesRequest, PartCapabilitiesResponse, PartCapabilitiesV2Response, CreationVersion, OccurrencePath, RigidMatrix)
 from cadenza_contracts.design_commands import DesignCommand
 from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse
 from cadenza_contracts.feature_capabilities import PatternCapabilitiesRequest, PatternCapabilitiesResponse
+from cadenza_contracts.gear_authoring import GearCapabilitiesRequest, GearCapabilitiesResponse
 
 PROTOCOL_VERSION = CONTRACT_VERSION
 
@@ -270,6 +271,7 @@ class AssemblyPrompt(StrictModel):
 
 
 class PartPrompt(PartRequest):
+    creation_version: CreationVersion = 1
     type: Literal["design.part.prompt"] = "design.part.prompt"
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     images: list[InlineImage] = Field(default_factory=list, max_length=MAX_IMAGES)
@@ -407,6 +409,7 @@ ClientMessage = Annotated[
         DesignCommand,
         CapabilitiesRequest,
         PatternCapabilitiesRequest,
+        GearCapabilitiesRequest,
         DesignPrompt,
         PromptCapabilitiesRequest,
     ],
@@ -588,6 +591,7 @@ class PreviewReady(_Msg):
     prompt: str = ""
     changes: list[PreviewChange]
     checks: list[str]
+    warnings: list[str] = Field(default_factory=list)
     attachment_contacts: list[AttachmentContact] = Field(default_factory=list, max_length=4096)
     independence: IndependenceResult | None = None
     assumptions: list[Assumption] = Field(default_factory=list)
@@ -619,10 +623,11 @@ class Pong(_Msg):
 ServerMessage = Annotated[
     Union[
         AssemblyCapabilitiesResponse, AssemblyPromptCapabilitiesResponse,
-        PartViewReady, PartCapabilitiesResponse,
+        PartViewReady, Annotated[Union[PartCapabilitiesResponse, PartCapabilitiesV2Response], Field(discriminator="version")],
         SessionReady,
         CapabilitiesResponse,
         PatternCapabilitiesResponse,
+        GearCapabilitiesResponse,
         PromptCapabilitiesResponse,
         AgentStatus,
         AgentMessage,

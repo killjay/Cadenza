@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator, model_serializer
 
 # Which fields are editable via SetDimension for supported kinds
 DIMENSION_FIELDS = {
@@ -51,6 +51,23 @@ class CapabilitiesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["design.capabilities"] = "design.capabilities"
     message_id: str = Field(min_length=1, max_length=200)
+    version: Literal[1, 2] = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def strict_version(cls, data):
+        if isinstance(data, dict) and "version" in data and type(data["version"]) is not int:
+            raise ValueError("Capability version must be an integer.")
+        return data
+
+
+class RevolveCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operations: tuple[Literal["add_revolve"], Literal["update_revolve"]] = ("add_revolve", "update_revolve")
+    profile_plane: Literal["XY"] = "XY"
+    axis: Literal["+Y"] = "+Y"
+    angle_unit: Literal["deg"] = "deg"
+    max_vertices: Literal[64] = 64
 
 
 class CapabilitiesResponse(BaseModel):
@@ -58,10 +75,24 @@ class CapabilitiesResponse(BaseModel):
     type: Literal["design.capabilities"] = "design.capabilities"
     message_id: str
     session_id: str
-    version: Literal[1] = 1
+    version: Literal[1, 2] = 1
     scope: Literal["source"] = "source"
     length_unit: Literal["mm"] = "mm"
     features: list[FeatureCapability] = Field(max_length=4)
+    revolve: RevolveCapability | None = None
+
+    @model_validator(mode="after")
+    def version_fields(self):
+        if (self.version == 2) != (self.revolve is not None):
+            raise ValueError("Revolve capability requires version 2.")
+        return self
+
+    @model_serializer(mode="wrap")
+    def legacy_shape(self, handler):
+        data = handler(self)
+        if self.version == 1:
+            data.pop("revolve", None)
+        return data
 
 
 def feature_capabilities() -> list[FeatureCapability]:

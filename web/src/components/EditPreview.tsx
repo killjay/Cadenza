@@ -35,6 +35,7 @@ export function EditPreview() {
     </div>}
     {preview.context_warning && <p>{preview.context_warning}</p>}
     <p className="text-ink-3">{preview.attachment_contacts?.length ? `${preview.attachment_contacts.length} declared face contacts verified. Interference checked. Other contacts are not verified.` : "Complete design rebuilt. Contact between mating faces is not verified."}</p>
+    {!!preview.warnings?.length && <div role="note" className="my-2 max-h-24 overflow-auto"><p className="font-semibold">Geometry limitations</p><ul>{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></div>}
     <details className="min-h-0 overflow-auto" key={preview.preview_id}>
     <summary className="cursor-pointer py-1">Review details ({preview.changes.length} changes)</summary>
     <p className="text-ink-4">Based on revision {preview.base_revision}. Apply to keep these changes.</p>

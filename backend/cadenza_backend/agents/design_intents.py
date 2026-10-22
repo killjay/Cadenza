@@ -7,7 +7,9 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from cadenza_contracts.design_commands import AddHole, CommandOperation
-from cadenza_contracts.feature_capabilities import feature_capabilities
+from cadenza_contracts.feature_capabilities import feature_capabilities, RevolveCapability
+from cadenza_contracts.revolve import revolve_reason
+from cadenza_contracts.gear_authoring import gear_reason
 from cadenza_contracts.ledger import Ledger
 from cadenza_contracts.messages import DesignPrompt
 from cadenza_backend.agents.core import AgentCard
@@ -35,7 +37,7 @@ class Proposal(_Result):
     def explicit_creation(cls, raw):
         if isinstance(raw, dict):
             for op in raw.get("operations", []) if isinstance(raw.get("operations", []), list) else []:
-                if not isinstance(op, dict) or op.get("op") != "add_feature":
+                if not isinstance(op, dict) or op.get("op") not in ("add_feature", "add_revolve", "add_gear"):
                     continue
                 placement = op.get("placement")
                 if not isinstance(placement, dict) or not {"origin", "rotation_deg"} <= placement.keys():
@@ -84,6 +86,21 @@ and shells are unsupported. A pinned feature action cannot add new features; use
 If the request asks to change only one occurrence of a source that has multiple affected occurrences,
 ask the user to Make independent first, even if shared editing was confirmed. Do not reinterpret
 an instance-only request as permission to change all uses. Edit scope is supplied by the server.
+Gear uses add_gear or update_gear with complete module (mm), integer teeth (3..128),
+height (mm), pressure_angle_deg (5..45) and shift (-1..1). External additive spur gears
+only; one active gear per source. Absolute placement, +Z axis, Z rotation only.
+Use explicit 20-degree pressure angle and zero shift defaults only if disclosed.
+Clarify absent module/count/width and pitch versus outside diameter; never guess or
+choose among conflicting dimensions. Updates preserve placement and identity.
+No internal/ring, helical, bevel or worm gears, motion/engagement or manufacturing guarantees.
+Add hubs/bores separately; a pinned update cannot reposition another feature's hole.
+Revolve uses add_revolve or update_revolve, with complete vertices and angle in degrees.
+Vertices are distinct [radius X, axial Y] corners in the local XY plane, mm, radius >= 0.
+The profile closes automatically, is simple with no collinear corners, and rotates about local +Y
+through the origin. Angle is >0 and <=360; at most 64 vertices. Creation requires explicit placement.
+Placement rotation [90,0,0] turns the local +Y axis toward source +Z. Never guess an axis,
+profile or rotation. A pinned update preserves placement and operation. Legacy unsupported
+revolves need clarification, never silent conversion. Do not use set_dimension for revolve.
 Ask one clarification question for missing critical dimensions, hole diameter/depth/opening Z,
 placement, ambiguous profile, conflicting text/image or target ambiguity. Do not guess critical
 values or choose the first feature. Assumptions do not substitute for required clarification.
@@ -111,10 +128,14 @@ Do not retarget a pattern, guess missing spacing/center/count, or create unsuppo
 """)
 
 
-async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False, face_context: dict | None = None, scope_context: dict | None = None):
+async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient | None = None, *, new_part: bool = False, creation_version: int = 1, face_context: dict | None = None, scope_context: dict | None = None):
     features = []
     for feature in ledger.features:
         data = feature.model_dump(mode="json")
+        if feature.kind == "gear":
+            data["gear_limitation"] = gear_reason(data, ledger.model_dump(mode="json"))
+        if feature.kind == "revolve":
+            data["revolve_limitation"] = revolve_reason(data)
         if feature.kind == "profile":
             data["parameters"].pop("solution", None)
         if feature.kind in PATTERN_KINDS:
@@ -129,6 +150,7 @@ async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient |
         ledger_id=ledger.project_id, scope="source", features=features, selected_face=face_context, edit_scope=scope_context,
         relationships=ledger.relationships.model_dump(mode="json"),
         capabilities=[c.model_dump(mode="json") for c in feature_capabilities()],
+        revolve_capability=RevolveCapability().model_dump(mode="json"),
         pattern_capabilities=dict(count_includes_seed=True, count_min=2, count_max=32,
             copy_budget=128, directions=list(DIRECTIONS), radius_mode="seed_position")), allow_nan=False)
     card = CARD
@@ -143,9 +165,10 @@ async def interpret(request: DesignPrompt, ledger: Ledger, client: ModelClient |
             "Unsupported constructions need clarification or an unsupported response, not a fallback.")
     if new_part:
         context = json.dumps(dict(request=request.prompt, mode="new_part", name=ledger.metadata.name,
-            allowed_kinds=["box", "cylinder", "hole"], max_operations=32), allow_nan=False)
-        card = replace(CARD, system_prompt=CARD.system_prompt + "\nNEW PART MODE: create exactly one independent source. "
-            "Only add_feature box/cylinder/hole operations are allowed; first add an additive box/cylinder. "
+            creation_version=creation_version, allowed_kinds=["box", "cylinder", "hole"] + (["revolve", "gear"] if creation_version == 2 else []), max_operations=32), allow_nan=False)
+        card = replace(CARD, system_prompt=CARD.system_prompt + "\nNEW PART MODE: create exactly one independent source. " +
+            ("Version 2 permits add_feature box/cylinder/hole, add_revolve and add_gear; first add additive stock. "
+             if creation_version == 2 else "Only add_feature box/cylinder/hole operations are allowed; first add an additive box/cylinder. ") +
             "No existing IDs, references, patterns, extrusion, assemblies, or existing-feature mutations. "
             "Clarify missing critical dimensions. Dependent features can be added after Apply.")
     if len(context.encode("utf-8")) > MAX_CONTEXT_BYTES:

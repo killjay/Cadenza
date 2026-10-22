@@ -106,6 +106,10 @@ def _find_face_by_direction(faces: List[Face], direction: str) -> Face | None:
 
 def run_probe_query(built: Any, query: dict) -> dict:
     qtype = query.get("query_type")
+    if qtype == "revolve_effects":
+        return _revolve_effects(built, query.get("feature_ids", []))
+    if qtype == "gear_effects":
+        return _gear_effects(built, query.get("feature_ids", []))
     if qtype == "pattern_effects":
         return _pattern_effects(built, query.get("feature_ids", []))
     cid1, cid2 = query.get("component_1_id"), query.get("component_2_id")
@@ -334,6 +338,181 @@ def run_probe_query(built: Any, query: dict) -> dict:
         return {"clearance": calc.Value()}
         
     return {"error": f"Unknown query type: {qtype}"}
+
+
+def _gear_effects(built: Any, feature_ids: list[str]) -> dict:
+    """Bounded gear/stock checks, including unchanged bores after parent edits."""
+    from dataclasses import replace
+    from build123d import Align, Cylinder, GeomType, Pos
+    from cadenza_geometry.builder import build_solid
+    from cadenza_geometry.contracts import GeometryError
+    from cadenza_geometry.frames import pattern_locations, to_world
+    from cadenza_geometry.plan import BuildPlan
+
+    plan = built.plan
+    if not isinstance(plan, BuildPlan) or len(feature_ids) != 1 or len(plan.features) > 32:
+        return {"error": "Gear checks support one gear and at most 32 source features."}
+    gear = plan.by_id(feature_ids[0])
+    if gear is None or gear.gear is None or gear.relative_to or gear.rotation_deg[:2] != (0, 0):
+        return {"error": "Select an absolute, source-Z spur gear."}
+    g = gear.gear
+    tol = 1e-5
+
+    def volume(shape):
+        if shape is None:
+            return 0.0
+        items = list(shape) if isinstance(shape, (list, tuple)) or type(shape).__name__ == "ShapeList" else [shape]
+        return sum(s.volume for item in items for s in item.solids())
+
+    def prefix(index):
+        return build_solid(replace(plan, features=plan.features[:index], warnings=[]))
+
+    def cylinders(shape, radius, x, y):
+        result = []
+        for face in shape.faces():
+            if face.geom_type != GeomType.CYLINDER:
+                continue
+            axis = face.axis_of_rotation
+            if axis is None or abs(abs(axis.direction.Z) - 1) > 1e-7:
+                continue
+            if math.hypot(axis.position.X - x, axis.position.Y - y) > tol:
+                continue
+            if face.radius is not None and abs(face.radius - radius) <= tol:
+                result.append(face)
+        return result
+
+    try:
+        if not built.solid.is_valid or len(built.solid.solids()) != 1:
+            raise ValueError("Gear authoring requires one connected valid source solid.")
+        tool = build_solid(replace(plan, features=[gear], warnings=[]))
+        box = tool.bounding_box()
+        height = gear.p["height"]
+        x, y, z = gear.origin
+        if not tool.is_valid or len(tool.solids()) != 1 or abs(box.min.Z-z) > tol or abs(box.max.Z-z-height) > tol:
+            raise ValueError("Gear tool does not match its axial placement and width.")
+        v = volume(tool)
+        if not math.pi*g.root_radius**2*height < v < math.pi*g.tip_radius**2*height:
+            raise ValueError("Gear volume falls outside its root/tip cylinders.")
+        tips = cylinders(tool, g.tip_radius, x, y)
+        roots = cylinders(tool, g.root_radius, x, y)
+        final_tips = cylinders(built.solid, g.tip_radius, x, y)
+        if len(tips) != g.teeth or len(roots) != g.teeth or len(final_tips) != g.teeth or not math.isclose(
+            sum(f.area for f in tips), sum(f.area for f in final_tips), rel_tol=1e-6, abs_tol=1e-7):
+            raise ValueError("The requested gear teeth did not survive the source feature chain.")
+        index = plan.features.index(gear)
+        effect = volume(prefix(index+1)) - (volume(prefix(index)) if index else 0)
+        if effect <= max(1e-7, v*1e-9):
+            raise ValueError("Gear has no measurable material effect.")
+        bores = []
+        for i, feature in enumerate(plan.features):
+            if feature.id == gear.id:
+                continue
+            if feature.kind == "cylinder" and feature.operation == "add":
+                if feature.is_rotated or feature.relative_to or math.hypot(feature.origin[0]-x, feature.origin[1]-y) > tol or feature.p["diameter"]/2 >= g.root_radius-tol:
+                    raise ValueError("Gear hubs must be coaxial and inside the root body.")
+                if volume(prefix(i+1))-(volume(prefix(i)) if i else 0) <= 1e-7:
+                    raise ValueError("The hub has no measurable material effect.")
+                continue
+            if feature.kind in ("linear_pattern", "circular_pattern"):
+                seed = plan.by_id(feature.p["target_feature"])
+                if seed is None or seed.kind != "hole":
+                    raise ValueError("Gear chains support interior hole patterns only.")
+                for location in pattern_locations(feature, plan):
+                    point = to_world(location, seed.origin)
+                    if math.hypot(point[0]-x, point[1]-y)+seed.p["diameter"]/2 >= g.root_radius-tol:
+                        raise ValueError("Keep patterned holes inside the gear root body.")
+                continue
+            if feature.kind != "hole" or feature.operation != "subtract" or feature.is_rotated or feature.relative_to:
+                raise ValueError("Gear checks support coaxial hubs and vertical interior bores/patterns. Other chains are not yet supported.")
+            hx, hy, hz = feature.origin
+            radius = feature.p["diameter"]/2
+            if math.hypot(hx-x, hy-y)+radius >= g.root_radius-tol or i == 0:
+                raise ValueError("Keep the complete bore inside the gear root body.")
+            stock = prefix(i)
+            bounds = stock.bounding_box()
+            if feature.through:
+                low = bounds.min.Z-1
+            else:
+                assert feature.depth is not None
+                low = hz-feature.depth
+            high = bounds.max.Z+1 if feature.through else hz
+            cutter = Pos(hx, hy, low) * Cylinder(radius, high-low, align=(Align.CENTER, Align.CENTER, Align.MIN))
+            cut: Any = stock.intersect(cutter)
+            pieces = list(cut) if isinstance(cut, (list, tuple)) or type(cut).__name__ == "ShapeList" else ([cut] if cut else [])
+            if not pieces:
+                raise ValueError("The bore has no material effect.")
+            extent = Compound(pieces).bounding_box()
+            depth = extent.max.Z-extent.min.Z
+            expected = math.pi*radius**2*depth
+            if depth <= tol or not math.isclose(volume(cut), expected, rel_tol=1e-6, abs_tol=1e-7):
+                raise ValueError("The bore must cut one complete cylinder; overlapping bores or complex stock are unsupported.")
+            if hz < extent.max.Z-tol:
+                raise ValueError("The through-hole opening is below the new stock top. Move its opening above the intended top before changing gear width.")
+            if not feature.through and abs(extent.min.Z-low) > tol:
+                raise ValueError("The blind bore does not retain its requested depth.")
+            if not feature.through:
+                floors = [face for face in built.faces if face.geom_type == GeomType.PLANE
+                    and abs(face.center().Z-low) <= tol and face.normal_at().Z > 1-1e-7
+                    and math.hypot(face.center().X-hx, face.center().Y-hy) <= tol
+                    and math.isclose(face.area, math.pi*radius**2, rel_tol=1e-6, abs_tol=1e-7)]
+                if len(floors) != 1:
+                    raise ValueError("The complete blind-hole floor did not survive.")
+            if volume(built.solid.intersect(cutter)) > max(1e-7, expected*1e-9):
+                raise ValueError("Material obstructs the intended bore; review its opening and downstream features.")
+            faces = [f for f in cylinders(built.solid, radius, hx, hy)
+                if abs(f.bounding_box().min.Z-extent.min.Z) <= tol and abs(f.bounding_box().max.Z-extent.max.Z) <= tol
+                and math.isclose(f.area, 2*math.pi*radius*depth, rel_tol=1e-6, abs_tol=1e-7)
+                and f.normal_at().X*(f.center().X-hx)+f.normal_at().Y*(f.center().Y-hy) < 0]
+            if len(faces) != 1:
+                raise ValueError("The complete, distinct bore did not survive the source chain.")
+            bores.append(feature.id)
+        warnings = ["Spur gear geometry uses radial root relief where needed; generated undercut and manufacturing tolerances are not modeled."]
+        warnings.extend(plan.warnings)
+        return {"gears": [dict(feature_id=gear.id, tooth_count=len(tips), tool_volume_mm3=v,
+            material_effect_mm3=effect, complete_bores=bores)], "warnings": warnings}
+    except (ValueError, GeometryError) as exc:
+        return {"error": str(exc)}
+
+
+def _revolve_effects(built: Any, feature_ids: list[str]) -> dict:
+    """Measure bounded revolve tools independently and require a material effect."""
+    from dataclasses import replace
+    from cadenza_geometry.builder import build_solid
+    from cadenza_geometry.contracts import GeometryError
+    from cadenza_geometry.plan import BuildPlan
+    from cadenza_contracts.revolve import RevolveSettings
+
+    plan = built.plan
+    if not isinstance(plan, BuildPlan) or not 1 <= len(feature_ids) <= 32 or len(set(feature_ids)) != len(feature_ids):
+        return {"error": "Select at most 32 distinct revolves in a source part."}
+    results = []
+    try:
+        if len(built.solid.solids()) != 1:
+            raise ValueError("Revolve authoring requires one connected final source solid.")
+        for fid in feature_ids:
+            feature = plan.by_id(fid)
+            if feature is None or feature.kind != "revolve" or feature.relative_to or tuple(feature.p["axis"]) != (0, 1, 0):
+                raise ValueError("Revolve is missing or outside the supported subset.")
+            settings = RevolveSettings(vertices=feature.p["vertices"], angle=feature.p["angle"])
+            points = settings.vertices
+            moment = sum((a[0]+b[0])*(a[0]*b[1]-b[0]*a[1]) for a, b in zip(points, points[1:]+points[:1]))
+            expected = abs(moment) * math.pi / 3 * settings.angle / 360
+            tool = build_solid(replace(plan, features=[replace(feature, operation="add")], warnings=[]))
+            tool_volume = sum(s.volume for s in tool.solids())
+            if not math.isclose(tool_volume, expected, rel_tol=1e-6, abs_tol=1e-7):
+                raise ValueError("Revolve tool volume does not match the requested profile and angle.")
+            index = plan.features.index(feature)
+            prefix = plan.features[:index]
+            has_stock = any(f.kind != "profile" and (f.kind != "sketch" or f.p["height"] > 0) for f in prefix)
+            before = sum(s.volume for s in build_solid(replace(plan, features=prefix, warnings=[])).solids()) if has_stock else 0
+            after = sum(s.volume for s in build_solid(replace(plan, features=plan.features[:index+1], warnings=[])).solids())
+            delta = after-before if feature.operation == "add" else before-after
+            if delta <= max(1e-7, expected*1e-9):
+                raise ValueError("Revolve has no measurable material effect.")
+            results.append(dict(feature_id=fid, tool_volume_mm3=tool_volume, material_effect_mm3=delta))
+        return {"revolves": results}
+    except (ValueError, GeometryError) as exc:
+        return {"error": str(exc)}
 
 
 def _pattern_effects(built: Any, feature_ids: list[str]) -> dict:

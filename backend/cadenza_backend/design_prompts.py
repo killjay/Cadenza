@@ -16,6 +16,8 @@ from cadenza_contracts.errors import CadenzaError, ErrorCode
 from cadenza_contracts.feature_capabilities import DIMENSION_FIELDS
 from cadenza_contracts.messages import AgentMessage, AgentStatus, AgentPhase, DesignPrompt
 from cadenza_contracts.patterns import PATTERN_KINDS, pattern_reason
+from cadenza_contracts.revolve import revolve_reason
+from cadenza_contracts.gear_authoring import gear_reason
 
 
 async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=None):
@@ -28,10 +30,18 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
         raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "Choose an existing source part, not an assembly root.")
     if request.feature_id is not None:
         feature = next((f for f in source.ledger.features if f.id == request.feature_id), None)
-        if feature is None or feature.kind not in (DIMENSION_FIELDS.keys() | PATTERN_KINDS):
+        if feature is None or feature.kind not in (DIMENSION_FIELDS.keys() | PATTERN_KINDS | {"revolve", "gear"}):
             raise CadenzaError(ErrorCode.PATCH_UNKNOWN_TARGET, "Choose a supported source feature.")
         if feature.kind in PATTERN_KINDS:
             reason = pattern_reason(feature.model_dump(mode="json"), source.ledger.model_dump(mode="json"))
+            if reason:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, reason)
+        if feature.kind == "gear":
+            reason = gear_reason(feature.model_dump(mode="json"), source.ledger.model_dump(mode="json"))
+            if reason:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, reason)
+        if feature.kind == "revolve":
+            reason = revolve_reason(feature.model_dump(mode="json"))
             if reason:
                 raise CadenzaError(ErrorCode.BAD_MESSAGE, reason)
     if request.images and not get_settings().vision_available and client is None:
@@ -96,7 +106,7 @@ async def handle_design_prompt(session, request: DesignPrompt, emit, *, client=N
         await emit(AgentMessage(message_id=request.message_id,
             text=result.question if isinstance(result, Clarification) else result.reason,
             needs_clarification=isinstance(result, Clarification)))
-    elif any((request.feature_id is not None if op.op in ("add_feature", "add_linear_pattern", "add_circular_pattern")
+    elif any((request.feature_id is not None if op.op in ("add_feature", "add_linear_pattern", "add_circular_pattern", "add_revolve", "add_gear")
               else request.feature_id is None or op.feature_id != request.feature_id) for op in result.operations):
         await emit(AgentMessage(message_id=request.message_id, needs_clarification=True,
             text="Edit with AI changes only the selected feature. Use Add with AI for additions; other existing features cannot change in this request."))

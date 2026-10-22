@@ -1,4 +1,7 @@
-import type { CapabilitiesResponse, CommandOperation, Feature, FeatureCapability, Ledger, PatternCapabilitiesResponse, PatternDirection } from "./types";
+import type { CapabilitiesResponse, CommandOperation, Feature, FeatureCapability, Ledger, PatternCapabilitiesResponse, PatternDirection, GearCapabilitiesResponse } from "./types";
+
+import { readGear, gearReason } from "./gear";
+import { readRevolve, revolveReason } from "./revolve";
 
 export const sourceNotice = "Source edits update all reused instances together.";
 
@@ -87,8 +90,25 @@ export function creationCommand(data: FormData, capability: FeatureCapability, l
   }
 }
 
-export function commandAvailable(ledger: Ledger, capabilities: CapabilitiesResponse, op: CommandOperation, patterns?: PatternCapabilitiesResponse | null): boolean {
+export function commandAvailable(ledger: Ledger, capabilities: CapabilitiesResponse, op: CommandOperation, patterns?: PatternCapabilitiesResponse | null, gears?: GearCapabilitiesResponse | null): boolean {
   if (ledger.assembly) return false;
+  if (op.op === "add_gear" || op.op === "update_gear") {
+    if (!gears) return false;
+    try { readGear(Object.fromEntries(Object.entries(op).map(([k, v]) => [k, String(v)]))); } catch { return false; }
+    if (op.op === "add_gear") return !ledger.features.some(f => f.kind === "gear" && !f.suppressed)
+      && op.placement.rotation_deg.slice(0, 2).every(v => v === 0);
+    const selected = ledger.features.find(f => f.id === op.feature_id);
+    return !!selected && !selected.suppressed && !gearReason(selected, ledger)
+      && !ledger.relationships?.bindings.some(b => b.feature_id === selected.id);
+  }
+  if (op.op === "add_revolve" || op.op === "update_revolve") {
+    if (!capabilities.revolve) return false;
+    try { readRevolve(op.vertices.map(row => row.map(String)), String(op.angle)); } catch { return false; }
+    if (op.op === "add_revolve") return true;
+    const selected = ledger.features.find(f => f.id === op.feature_id);
+    return !!selected && !selected.suppressed && !revolveReason(selected)
+      && !ledger.relationships?.bindings.some(binding => binding.feature_id === selected.id);
+  }
   if (op.op === "add_linear_pattern" || op.op === "add_circular_pattern") {
     const seed = ledger.features.find(f => f.id === op.target_feature);
     return !!patterns && !!seed && patternSeed(seed) && patternSettingsValid(op, seed);
@@ -98,6 +118,10 @@ export function commandAvailable(ledger: Ledger, capabilities: CapabilitiesRespo
       && (op.kind !== "extrude" || profileTargets(ledger).some(f => f.id === op.parameters.target_feature));
   }
   const feature = ledger.features.find(f => f.id === op.feature_id);
+  if (feature?.kind === "gear") return !!gears && !gearReason(feature, ledger)
+    && (op.op === "remove_feature" || op.op === "set_suppressed");
+  if (feature?.kind === "revolve") return !!capabilities.revolve && !revolveReason(feature)
+    && (op.op === "remove_feature" || op.op === "set_suppressed");
   if (feature && isPattern(feature)) {
     if (!patterns || patternReason(feature, ledger)) return false;
     if (op.op === "remove_feature" || op.op === "set_suppressed") return true;

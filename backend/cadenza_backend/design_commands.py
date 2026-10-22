@@ -11,6 +11,9 @@ from cadenza_contracts.feature_capabilities import is_addable, is_origin_editabl
 from cadenza_contracts.parameters import dimension_edit_path
 from cadenza_contracts.design_commands import AddLinearPattern, AddCircularPattern, UpdateLinearPattern, UpdateCircularPattern
 from cadenza_contracts.patterns import DIRECTIONS, actual_radius, pattern_reason, seed_reason
+from cadenza_contracts.design_commands import AddRevolve, UpdateRevolve, AddGear, UpdateGear
+from cadenza_contracts.gear_authoring import GearSettings, gear_reason
+from cadenza_contracts.revolve import revolve_reason
 
 
 def compile_command(session: Any, request: DesignCommand) -> list[PatchOp]:
@@ -27,6 +30,24 @@ def compile_source_command(ledger, request: DesignCommand) -> list[PatchOp]:
     removed_feature_ids: set[str] = {op.feature_id for op in request.operations if isinstance(op, RemoveFeature)}
     
     for op in request.operations:
+        if isinstance(op, AddGear):
+            if ledger.assembly is not None:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Gears belong to a source part.")
+            fid = new_feature_id()
+            added_features.add(fid)
+            patches.append(PatchOp(op="add", ledger_id=request.ledger_id, path="/features/-", value=dict(
+                id=fid, name=op.name, kind="gear", operation="add", placement=op.placement.model_dump(),
+                parameters={key: getattr(op, key) for key in GearSettings.model_fields})))
+            continue
+        if isinstance(op, AddRevolve):
+            if ledger.assembly is not None:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Revolves belong to a source part.")
+            fid = new_feature_id()
+            added_features.add(fid)
+            patches.append(PatchOp(op="add", ledger_id=request.ledger_id, path="/features/-", value=dict(
+                id=fid, name=op.name, kind="revolve", operation=op.operation,
+                placement=op.placement.model_dump(), parameters=dict(vertices=op.vertices, angle=op.angle, axis=[0, 1, 0]))))
+            continue
         if isinstance(op, (AddLinearPattern, AddCircularPattern)):
             if ledger.assembly is not None:
                 raise CadenzaError(ErrorCode.BAD_MESSAGE, "Patterns belong to a source part, not an assembly.")
@@ -104,7 +125,35 @@ def compile_source_command(ledger, request: DesignCommand) -> list[PatchOp]:
 
         is_suppressed = getattr(feature, "suppressed", feature.get("suppressed") if isinstance(feature, dict) else False)
 
-        if isinstance(op, (UpdateLinearPattern, UpdateCircularPattern)):
+        if isinstance(op, UpdateGear):
+            reason = gear_reason(feature.model_dump(mode="json"), ledger.model_dump(mode="json"))
+            if reason or is_suppressed:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, reason or "Restore the gear before editing it.")
+            path = f"/features/{op.feature_id}"
+            if any(key == path or key.startswith(path + "/") for key in modified_targets):
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Conflicting gear updates")
+            if any(b.feature_id == op.feature_id for b in ledger.relationships.bindings):
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Edit the driving parameters for this bound gear.")
+            modified_targets.add(path)
+            value = feature.model_dump(mode="json")
+            value["parameters"] = {key: getattr(op, key) for key in GearSettings.model_fields}
+            patches.append(PatchOp(op="replace", ledger_id=request.ledger_id, path=path, value=value))
+
+        elif isinstance(op, UpdateRevolve):
+            reason = revolve_reason(feature.model_dump(mode="json"))
+            if reason or is_suppressed:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, reason or "Restore the feature before editing it.")
+            path = f"/features/{op.feature_id}"
+            if path in modified_targets or f"{path}/suppressed" in modified_targets:
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Conflicting revolve updates")
+            if any(b.feature_id == op.feature_id for b in ledger.relationships.bindings):
+                raise CadenzaError(ErrorCode.BAD_MESSAGE, "Edit the driving parameters for this bound revolve.")
+            modified_targets.add(path)
+            value = feature.model_dump(mode="json")
+            value["parameters"].update(vertices=op.vertices, angle=op.angle)
+            patches.append(PatchOp(op="replace", ledger_id=request.ledger_id, path=path, value=value))
+
+        elif isinstance(op, (UpdateLinearPattern, UpdateCircularPattern)):
             expected = "linear_pattern" if isinstance(op, UpdateLinearPattern) else "circular_pattern"
             if feature.kind != expected or is_suppressed:
                 raise CadenzaError(ErrorCode.BAD_MESSAGE, "Select an active pattern of the requested kind.")
@@ -182,6 +231,10 @@ def compile_source_command(ledger, request: DesignCommand) -> list[PatchOp]:
     # Reuse the normal patch/binding/reference validators on the complete result.
     # Checking dependencies against the old ledger incorrectly rejects grouped edits.
     candidate = apply_patch(ledger, patches).ledger
+    if any(isinstance(op, (AddGear, UpdateGear)) or (isinstance(op, SetSuppressed) and not op.suppressed
+            and (target := feature_by_id(ledger, op.feature_id)) is not None and target.kind == "gear") for op in request.operations):
+        if sum(f.kind == "gear" and not f.suppressed for f in candidate.features) > 1:
+            raise CadenzaError(ErrorCode.BAD_MESSAGE, "Use a separate source for each gear.")
     has_solid = any(not f.suppressed and f.operation == "add" and f.kind != "profile"
         and (f.kind != "sketch" or f.parameters.height > 0) for f in candidate.features)
     if not has_solid and (ledger.features or added_features):
@@ -199,6 +252,11 @@ async def handle_design_command(session: Any, request: DesignCommand, emit: Call
         
     patches = compile_command(session, request)
     _, ledgers = stage_operations(session, patches)
+    if verification_scope is None and any(
+        not f.suppressed and f.kind == "revolve" and revolve_reason(f.model_dump(mode="json")) is None
+        for f in ledgers[request.ledger_id].features
+    ):
+        verification_scope = (request.ledger_id, None)
     
     outcome = await build_design(ledgers, session.primary_ledger_id)
     if not outcome.ok:

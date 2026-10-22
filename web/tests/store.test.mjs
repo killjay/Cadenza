@@ -14,9 +14,11 @@ async function setup(occtOverrides = {}, globals = {}) {
   let handlers;
   const socket = { connect: h => { handlers = h; }, sendLog() {}, setShownRevision() {}, sendPrompt: p => prompts.push(p), reset() {}, undo() {}, send: frame => calls.push(frame) };
   const assembly = await loadModule("../src/lib/assembly.ts");
-  const featureCommands = await loadModule("../src/lib/featureCommands.ts");
+  const gear = await loadModule("../src/lib/gear.ts");
+  const revolve = await loadModule("../src/lib/revolve.ts");
+  const featureCommands = await loadModule("../src/lib/featureCommands.ts", { "./revolve": revolve, "./gear": gear });
   const { useStore: store } = await loadModule("../src/lib/store.ts", {
-    zustand: { create }, "../workers/occtClient": { occt }, "./image": { prepareImage() {} }, "./socket": { socket }, "./featureCommands": featureCommands, "./assembly": assembly,
+    zustand: { create }, "../workers/occtClient": { occt }, "./image": { prepareImage() {} }, "./socket": { socket }, "./featureCommands": featureCommands, "./assembly": assembly, "./revolve": revolve, "./gear": gear,
   }, { window, ...globals });
   const ready = (revision = 0) => store.getState().onFrame({ type: "session.ready", session_id: "ses_test", revision,
     can_undo: revision > 0, store: { part: { revision, features: [] } }, agents_available: true });
@@ -29,10 +31,92 @@ const emptyDraft = { id: "draft_test", base_revision: 0, revision: 0, ledger_id:
 
 const boxCapability = { kind: "box", dimensions: ["length", "width", "height"], origin_axes: ["x", "y", "z"],
   create_operations: ["add", "subtract"], suppress: true, remove: true };
+
+test("part-v2 falls back once and gear discovery cannot release another operation", async () => {
+  const s=await setup();s.store.getState().connect();s.connection("open");s.ready();
+  s.store.getState().onFrame({type:"design.capabilities",message_id:s.store.getState().capabilityRequest,
+    session_id:"ses_test",version:1,scope:"source",length_unit:"mm",features:[boxCapability]});
+  const first=s.store.getState().partDiscovery, gearId=s.store.getState().gearDiscovery;
+  assert.equal(s.calls.find(c=>c.message_id===first).version,2);
+  s.store.setState({busy:true});
+  s.store.getState().onFrame({type:"error",code:"BAD_MESSAGE",message:"Version rejected",detail:"design.part.capabilities.version\nExtra inputs are not permitted"});
+  const retry=s.store.getState().partDiscovery;
+  assert.notEqual(first,retry);assert.equal(s.store.getState().busy,true);
+  assert.equal(s.calls.find(c=>c.message_id===retry).version,undefined);
+  const response={type:"design.part.capabilities",session_id:"ses_test",version:1,starter_kinds:["box","cylinder"],max_sources:32,max_operations:32,source_view:true};
+  s.store.getState().onFrame({...response,message_id:first});assert.equal(s.store.getState().partCapabilities,null);
+  s.store.getState().onFrame({...response,message_id:retry});assert.equal(s.store.getState().partCapabilities.version,1);
+  s.store.getState().onFrame({type:"error",code:"BAD_MESSAGE",message_id:gearId,message:"Unknown gear discovery"});
+  assert.equal(s.store.getState().busy,true);assert.equal(s.store.getState().capabilities.version,1);
+  assert.equal(s.store.getState().gearCapabilities,null);
+  s.store.getState().onFrame({type:"error",code:"BAD_MESSAGE",message_id:gearId,message:"Late rejection"});
+  s.store.getState().onFrame({type:"error",code:"BAD_MESSAGE",message_id:first,message:"Late version rejection"});
+  assert.equal(s.store.getState().busy,true);assert.equal(s.store.getState().partCapabilities.version,1);
+});
+
+test("gear discovery is exact and new parts require both creation and operation capability", async () => {
+  const s=await setup();s.store.getState().connect();s.connection("open");s.ready();
+  s.store.getState().onFrame({type:"design.capabilities",message_id:s.store.getState().capabilityRequest,
+    session_id:"ses_test",version:1,scope:"source",length_unit:"mm",features:[boxCapability]});
+  s.store.getState().onFrame({type:"design.part.capabilities",session_id:"ses_test",message_id:s.store.getState().partDiscovery,
+    version:2,starter_kinds:["box","cylinder","revolve","gear"],max_sources:32,max_operations:32,source_view:true});
+  const op={op:"add_gear",name:"Drive",operation:"add",module:1,teeth:24,height:5,pressure_angle_deg:20,shift:0,placement:{origin:[0,0,0],rotation_deg:[0,0,0]}};
+  const before=s.calls.length;s.store.getState().createPart("Drive",[op]);assert.equal(s.calls.length,before);
+  const response={type:"design.gear.capabilities",message_id:s.store.getState().gearDiscovery,session_id:"ses_test",version:1,
+    scope:"source",length_unit:"mm",operations:["add_gear","update_gear"],axis:"+Z",additive_only:true,teeth_min:3,teeth_max:128,max_active_gears:1};
+  s.store.getState().onFrame({...response,session_id:"old"});assert.equal(s.store.getState().gearCapabilities,null);
+  s.store.getState().onFrame(response);s.store.getState().createPart("Drive",[op]);
+  assert.equal(s.calls.at(-1).type,"design.part.create");assert.equal(s.calls.at(-1).creation_version,2);
+  s.connection("closed");assert.equal(s.store.getState().gearCapabilities,null);
+});
 const commandLedger = { project_id: "part", features: [{ id: "feat_box", kind: "box", suppressed: false,
   parameters: { length: 20, width: 20, height: 10, through: false, draft_angle: 0 },
   placement: { origin: [0, 0, 0], rotation_deg: [0, 0, 0], relative_to: null } }], relationships: { parameters: {}, bindings: [] } };
 const widthCommand = [{ op: "set_dimension", feature_id: "feat_box", parameter: "width", value: 30 }];
+
+test("revolve discovery falls back once on correlated rejection and ignores stale replies", async () => {
+  const s = await setup(); s.store.getState().connect(); s.connection("open"); s.ready();
+  const first = s.store.getState().capabilityRequest;
+  assert.equal(s.calls.find(c => c.message_id === first).version, 2);
+  s.store.setState({busy:true});
+  s.store.getState().onFrame({type:"error", code:"BAD_MESSAGE", message_id:first, message:"Unsupported version"});
+  const retry = s.store.getState().capabilityRequest;
+  assert.notEqual(first, retry);
+  assert.equal(s.store.getState().busy, true);
+  assert.equal(s.calls.find(c => c.message_id === retry).version, undefined);
+  const response = {type:"design.capabilities", session_id:"ses_test", version:1, scope:"source", length_unit:"mm", features:[boxCapability]};
+  s.store.getState().onFrame({...response, message_id:first});
+  assert.equal(s.store.getState().capabilities, null);
+  s.store.getState().onFrame({...response, message_id:retry});
+  assert.equal(s.store.getState().capabilities.version, 1);
+  assert.equal(s.store.getState().capabilities.revolve, undefined);
+  s.connection("closed"); assert.equal(s.store.getState().capabilities, null);
+  s.connection("open"); s.ready();
+  assert.equal(s.store.getState().capabilityVersion, 2);
+});
+
+test("v2 discovery requires complete revolve metadata before enabling commands", async () => {
+  const s = await setup(); s.store.getState().connect(); s.connection("open"); s.ready();
+  const response = {type:"design.capabilities", session_id:"ses_test", version:2, scope:"source", length_unit:"mm", features:[boxCapability],
+    revolve:{operations:["add_revolve","update_revolve"], profile_plane:"XY", axis:"+Y", angle_unit:"deg", max_vertices:64}};
+  s.store.getState().onFrame({...response, message_id:s.store.getState().capabilityRequest, revolve:{...response.revolve, axis:"+Z"}});
+  assert.equal(s.store.getState().capabilities, null);
+  s.ready();
+  s.store.getState().onFrame({...response, message_id:s.store.getState().capabilityRequest});
+  assert.equal(s.store.getState().capabilities.revolve.axis, "+Y");
+});
+
+test("legacy uncorrelated version-field rejection enables one v1 retry", async () => {
+  const s = await setup(); s.store.getState().connect(); s.connection("open"); s.ready();
+  s.store.getState().onFrame({type:"error", code:"BAD_MESSAGE", message:"Could not parse that frame.",
+    detail:"1 validation error for tagged-union\ndesign.capabilities.version\n  Extra inputs are not permitted"});
+  assert.equal(s.store.getState().capabilityVersion, 1);
+  const retry = s.store.getState().capabilityRequest;
+  assert.ok(retry);
+  assert.equal(s.calls.find(c=>c.message_id===retry).version, undefined);
+  s.store.getState().onFrame({type:"error", code:"BAD_MESSAGE", message_id:retry, message:"Unsupported"});
+  assert.equal(s.store.getState().capabilityRequest, null);
+});
 
 test("source face actions pin semantic source context and reject stale generations/revisions", async () => {
   const s = await promptSetup();

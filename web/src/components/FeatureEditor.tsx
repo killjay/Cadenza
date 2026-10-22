@@ -6,6 +6,8 @@ import type { Feature, ParameterEdit } from "../lib/types";
 import { isPattern } from "../lib/featureCommands";
 import { PatternControls } from "./PatternControls";
 import { NumericInput } from "./NumericInput";
+import { GearControls } from "./GearControls";
+import { RevolveControls } from "./RevolveControls";
 
 function useDraftGuard(dirty: boolean, reset: () => void) {
   useEffect(() => {
@@ -89,6 +91,8 @@ function NumericField({ label, value, signed, disabled, submit }: {
 export function FeatureEditor({ ledgerId, feature }: { ledgerId: string; feature: Feature }) {
   const state = useStore(), ledger = state.ledgers[ledgerId];
   if (!ledger || ledger.assembly) return null;
+  if (feature.kind === "gear") return <GearControls key={`${state.sessionId}:${state.sessionRevision}:${feature.id}`} ledger={ledger} feature={feature} />;
+  if (feature.kind === "revolve") return <RevolveControls key={`${state.sessionId}:${state.sessionRevision}:${feature.id}`} ledger={ledger} feature={feature} />;
   if (isPattern(feature)) return <PatternControls key={`${state.sessionId}:${state.sessionRevision}:${feature.id}`} ledger={ledger} feature={feature} />;
   const capability = state.capabilities?.features.find(c => c.kind === feature.kind);
   // Compatibility only: older servers do not advertise a command capability table.

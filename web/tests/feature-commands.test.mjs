@@ -2,7 +2,45 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadModule } from "./load-module.mjs";
 
-const helper = await loadModule("../src/lib/featureCommands.ts");
+const gear = await loadModule("../src/lib/gear.ts");
+  const revolve = await loadModule("../src/lib/revolve.ts");
+const helper = await loadModule("../src/lib/featureCommands.ts", { "./revolve": revolve, "./gear": gear });
+
+test("gear settings reject coercion and controls require dedicated discovery and an eligible source", () => {
+  const settings = {module:"1",teeth:"24",height:"5",pressure_angle_deg:"20",shift:"0"};
+  assert.equal(gear.readGear(settings).teeth,24);
+  for (const [key,value] of [["teeth","24.5"],["teeth","129"],["module","0x10"],["module",""],["height","Infinity"],["shift","2"],["pressure_angle_deg","46"]])
+    assert.throws(()=>gear.readGear({...settings,[key]:value}));
+  const feature={id:"feat_drive",kind:"gear",operation:"add",suppressed:false,parameters:gear.readGear(settings),placement:{origin:[0,0,0],rotation_deg:[0,0,0],relative_to:null}};
+  const ledger={features:[feature],relationships:{bindings:[]}};
+  const op={op:"update_gear",feature_id:feature.id,...feature.parameters};
+  assert.equal(helper.commandAvailable(ledger,{features:[]},op),false);
+  assert.equal(helper.commandAvailable(ledger,{features:[]},op,null,{}),true);
+  assert.equal(helper.commandAvailable({...ledger,features:[feature,{...feature,id:"feat_second"}]},{features:[]},op,null,{}),false);
+  assert.match(gear.gearReason({...feature,placement:{...feature.placement,rotation_deg:[20,0,0]}},ledger),/source Z/);
+});
+
+test("revolve uses explicit capability, bounded numeric profile and preserves legacy editing limits", () => {
+  const rows = [["0", "0"], ["10", "0"], ["10", "20"], ["0", "20"]];
+  const settings = revolve.readRevolve(rows, "360");
+  assert.equal(settings.angle, 360);
+  for (const value of ["", "0x20", "NaN", "Infinity", "1e999", "-1"])
+    assert.throws(() => revolve.readRevolve([[value, "0"], ...rows.slice(1)], "360"));
+  for (const value of ["0", "361", "Infinity"]) assert.throws(() => revolve.readRevolve(rows, value));
+  assert.throws(() => revolve.readRevolve([...rows, rows[0]], "360"));
+  const feature = { id:"feat_turn", kind:"revolve", suppressed:false, placement:{relative_to:null}, parameters:{...settings, axis:[0,1,0]} };
+  const ledger = { features:[feature], relationships:{bindings:[]} };
+  const op = { op:"update_revolve", feature_id:feature.id, ...settings };
+  assert.equal(helper.commandAvailable(ledger, {features:[]}, op), false);
+  assert.equal(helper.commandAvailable(ledger, {features:[], revolve:{}}, op), true);
+  feature.parameters.axis = [0,0,1];
+  assert.match(revolve.revolveReason(feature), /Legacy/);
+  assert.equal(helper.commandAvailable(ledger, {features:[], revolve:{}}, op), false);
+  feature.parameters.axis = [0,1,0]; feature.suppressed = true;
+  assert.equal(helper.commandAvailable(ledger, {features:[], revolve:{}}, op), false);
+  feature.suppressed = false; ledger.relationships.bindings = [{feature_id:feature.id}];
+  assert.equal(helper.commandAvailable(ledger, {features:[], revolve:{}}, op), false);
+});
 
 test("decimal text inputs retain numeric bounds and integer counts", () => {
   for (const value of ["-2.5", ".5", "1e2", "+4", "0", "10."])

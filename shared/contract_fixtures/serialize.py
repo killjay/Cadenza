@@ -200,6 +200,30 @@ fixtures["server"].append(dict(type="design.preview", message_id="independent", 
 fixtures["client"].append(dict(type="design.prompt", message_id="scope_prompt", base_revision=0,
     ledger_id="prj_face", feature_id="feat_face", scope="source", prompt="Set height to 12 mm",
     edit_context=dict(component_path=["comp_a"], shared_source_confirmed=True)))
+from cadenza_contracts.feature_capabilities import CapabilitiesResponse, RevolveCapability, feature_capabilities
+fixtures["client"].extend([
+    dict(type="design.capabilities", message_id="revolve_cap", version=2),
+    dict(type="design.command", message_id="revolve", base_revision=0, ledger_id="prj_face", operations=[
+        dict(op="add_revolve", name="Turned part", operation="add", placement=dict(origin=[0, 0, 0], rotation_deg=[90, 0, 0]),
+            vertices=[[0, 0], [10, 0], [10, 20], [0, 20]], angle=360),
+        dict(op="update_revolve", feature_id="feat_turn", vertices=[[2, 0], [10, 0], [10, 20], [2, 20]], angle=180)])])
+fixtures["server"].append(CapabilitiesResponse(message_id="revolve_cap", session_id="session_fixture", version=2,
+    features=feature_capabilities(), revolve=RevolveCapability()).model_dump(mode="json"))
+from cadenza_contracts.gear_authoring import GearCapabilitiesResponse
+from cadenza_contracts.part_commands import PartCapabilitiesV2Response
+gear_settings = dict(module=1, teeth=24, height=5, pressure_angle_deg=20, shift=0)
+gear_creation = dict(op="add_gear", name="Drive", operation="add", **gear_settings,
+    placement=dict(origin=[0, 0, 0], rotation_deg=[0, 0, 0]))
+fixtures["client"].extend([
+    dict(type="design.gear.capabilities", message_id="gear_cap"),
+    dict(type="design.part.capabilities", message_id="part_v2", version=2),
+    dict(type="design.part.create", message_id="gear_part", base_revision=0, name="Drive", creation_version=2, operations=[gear_creation]),
+    dict(type="design.part.prompt", message_id="gear_prompt", base_revision=0, name="Drive", creation_version=2, prompt="Create the specified gear", images=[]),
+    dict(type="design.command", message_id="gear_edit", base_revision=0, ledger_id="prj_face",
+        operations=[dict(op="update_gear", feature_id="feat_drive", **gear_settings)])])
+fixtures["server"].extend([
+    GearCapabilitiesResponse(message_id="gear_cap", session_id="session_fixture").model_dump(mode="json"),
+    PartCapabilitiesV2Response(message_id="part_v2", session_id="session_fixture").model_dump(mode="json")])
 print(json.dumps({
     "client": [parse_client_message(frame).model_dump(mode="json") for frame in fixtures["client"]],
     "server": [parse_server_message(frame).model_dump(mode="json") for frame in fixtures["server"]],

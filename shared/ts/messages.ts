@@ -107,7 +107,7 @@ export interface FeatureCapability {
   suppress: boolean;
   remove: boolean;
 }
-export interface CapabilitiesRequest { type: "design.capabilities"; message_id: string; }
+export interface CapabilitiesRequest { type: "design.capabilities"; message_id: string; version?: 1 | 2; }
 export interface PatternCapabilitiesRequest { type: "design.pattern.capabilities"; message_id: string; }
 export type PatternDirection = "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
 export interface PatternCapabilitiesResponse {
@@ -153,10 +153,13 @@ export interface PromptCapabilitiesResponse {
   source_faces?: true;
   explicit_source_scope?: true;
 }
-export interface CapabilitiesResponse {
-  type: "design.capabilities"; message_id: string; session_id: string; version: 1;
-  scope: "source"; length_unit: "mm"; features: FeatureCapability[];
+export interface RevolveCapability {
+  operations: ["add_revolve", "update_revolve"]; profile_plane: "XY"; axis: "+Y"; angle_unit: "deg"; max_vertices: 64;
 }
+export type CapabilitiesResponse = {
+  type: "design.capabilities"; message_id: string; session_id: string;
+  scope: "source"; length_unit: "mm"; features: FeatureCapability[];
+} & ({ version: 1; revolve?: never } | { version: 2; revolve: RevolveCapability });
 export interface SketchDimensionEdit {
   type: "design.sketch_dimension"; message_id: string; base_revision: number;
   ledger_id: string; feature_id: string; constraint_id: string; value: number;
@@ -221,7 +224,18 @@ export interface HoleCreationParams { diameter: number; depth?: number | null; t
 export interface ExtrudeCreationParams { amount: number; target_feature: string; }
 export type CommandPlacement = Omit<Placement, "relative_to"> & { relative_to: null };
 
+export interface GearSettings { module: number; teeth: number; height: number; pressure_angle_deg: number; shift: number; }
+export interface GearCapabilitiesRequest { type: "design.gear.capabilities"; message_id: string; }
+export interface GearCapabilitiesResponse extends GearCapabilitiesRequest {
+  session_id: string; version: 1; scope: "source"; length_unit: "mm";
+  operations: ["add_gear", "update_gear"]; axis: "+Z"; additive_only: true;
+  teeth_min: 3; teeth_max: 128; max_active_gears: 1;
+}
 export type CommandOperation =
+  | (GearSettings & { op: "add_gear"; name: string; operation: "add"; placement: CommandPlacement })
+  | (GearSettings & { op: "update_gear"; feature_id: string })
+  | { op: "add_revolve"; name: string; operation: "add" | "subtract"; placement: CommandPlacement; vertices: [number, number][]; angle: number }
+  | { op: "update_revolve"; feature_id: string; vertices: [number, number][]; angle: number }
   | { op: "add_linear_pattern"; name: string; target_feature: string; count: number; spacing: number; direction: PatternDirection }
   | { op: "add_circular_pattern"; name: string; target_feature: string; count: number; center_xy: [number, number] }
   | { op: "update_linear_pattern"; feature_id: string; count: number; spacing: number; direction: PatternDirection }
@@ -244,17 +258,18 @@ export interface DesignCommand {
   operations: CommandOperation[];
 }
 
-export type PartOperation = Extract<CommandOperation, { op: "add_feature"; kind: "box" | "cylinder" | "hole" }>;
-export interface PartCreate { type: "design.part.create"; message_id: string; base_revision: number; name: string; operations: PartOperation[]; }
+export type PartOperation = Extract<CommandOperation, { op: "add_feature"; kind: "box" | "cylinder" | "hole" } | { op: "add_gear" | "add_revolve" }>;
+export interface PartCreate { creation_version?: 1 | 2; type: "design.part.create"; message_id: string; base_revision: number; name: string; operations: PartOperation[]; }
 export interface PartRename { type: "design.part.rename"; message_id: string; base_revision: number; ledger_id: string; name: string; }
-export interface PartPrompt { type: "design.part.prompt"; message_id: string; base_revision: number; name: string; prompt: string; images: InlineImage[]; }
+export interface PartPrompt { creation_version?: 1 | 2; type: "design.part.prompt"; message_id: string; base_revision: number; name: string; prompt: string; images: InlineImage[]; }
 export interface PartViewRequest { type: "design.part.view"; message_id: string; base_revision: number; ledger_id: string; component_path?: string[] | null; }
 export interface PartViewReady { type: "design.part.view_ready"; message_id: string; session_id: string; revision: number;
   ledger_id: string; view_id: string; glb_url: string | null; step_url: string | null; empty: boolean;
   component_path?: string[] | null; source_to_project?: number[] | null; context_glb_url?: string | null; context_warning?: string | null; }
-export interface PartCapabilitiesRequest { type: "design.part.capabilities"; message_id: string; }
-export interface PartCapabilitiesResponse { type: "design.part.capabilities"; message_id: string; session_id: string;
-  version: 1; starter_kinds: ["box", "cylinder"]; max_operations: 32; max_sources: 32; source_view: true; source_context?: true; rename_source?: true; }
+export interface PartCapabilitiesRequest { version?: 1 | 2; type: "design.part.capabilities"; message_id: string; }
+export type PartCapabilitiesResponse = { type: "design.part.capabilities"; message_id: string; session_id: string;
+  max_operations: 32; max_sources: 32; source_view: true; source_context?: true; rename_source?: true; }
+  & ({ version: 1; starter_kinds: ["box", "cylinder"] } | { version: 2; starter_kinds: ["box", "cylinder", "revolve", "gear"] });
 
 export type AssemblyOperation =
   | { op: "initialize_assembly"; name: string }
@@ -287,7 +302,7 @@ export type ClientMessage =
   | ClientHello | UserPrompt | SpatialProbe | LedgerRequest | LedgerCreate
   | SessionReset | SessionUndo | SessionRedo | Ping | ClientLog | ParameterEdit | NamedParameterEdit | SketchDimensionEdit | PreviewDecision
   | DraftStart | DraftUpdate | DraftAction | DraftPrompt | DraftProposalDecision | DesignCommand | CapabilitiesRequest
-  | DesignPrompt | PromptCapabilitiesRequest | PatternCapabilitiesRequest;
+  | DesignPrompt | PromptCapabilitiesRequest | PatternCapabilitiesRequest | GearCapabilitiesRequest;
 export type ClientFrame = ClientMessage;
 
 export interface Limits {
@@ -432,6 +447,7 @@ export interface Pong { type: "pong"; t: number; }
 
 export interface PreviewChange { ledger_id: string; path: string; before: unknown; after: unknown; }
 export interface PreviewReady {
+  warnings?: string[];
   independence?: { component_path: string[]; old_source_id: string; new_source_id: string; name: string; copied_assemblies: number } | null;
   attachment_contacts?: { definition_id: string; joint_id: string; separation_mm: number; normal_residual: number; area_mm2: number; references_resolved: true; contact_verified: true }[];
   type: "design.preview"; message_id: string; preview_id: string; base_revision: number;
@@ -445,7 +461,7 @@ export interface PreviewClosed { type: "design.preview_closed"; message_id: stri
 
 export type ServerMessage =
   | AssemblyCapabilitiesResponse | AssemblyPromptCapabilitiesResponse
-  | PartViewReady | PartCapabilitiesResponse
+  | PartViewReady | PartCapabilitiesResponse | GearCapabilitiesResponse
   | SessionReady | CapabilitiesResponse | PromptCapabilitiesResponse | PatternCapabilitiesResponse | AgentStatus | AgentMessage | LedgerUpdated | GeometryReady
   | GeometryFailed | SpatialResult | ErrorMessage | Pong | PreviewReady | PreviewClosed | DraftState | DraftClosed | DraftProposal;
 export type ServerFrame = ServerMessage;

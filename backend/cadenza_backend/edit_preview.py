@@ -70,12 +70,31 @@ def changes_between(before: dict[str, Ledger], after: dict[str, Ledger]) -> list
 
 
 async def verify_edit(before: dict[str, Ledger], after: dict[str, Ledger], prompt: str, *, verification_scope=None,
-                      prompt_scope: Literal["source", "assembly"] = "source") -> list[str]:
+                      prompt_scope: Literal["source", "assembly"] = "source", warnings: list[str] | None = None) -> list[str]:
     checks = ["The complete design built successfully."]
     added_holes = []
     for lid, ledger in after.items():
         old = {f.id: f for f in before[lid].features} if lid in before else {}
         live = [f for f in ledger.features if not f.suppressed]
+        if lid not in before or before[lid].features != ledger.features:
+            from cadenza_contracts.gear_authoring import gear_reason
+            source = ledger.model_dump(mode="json")
+            gears = [f.id for f in live if f.kind == "gear" and gear_reason(f.model_dump(mode="json"), source) is None]
+            if gears:
+                effects = await inspect(ledger, {"query_type": "gear_effects", "feature_ids": gears}, after)
+                if effects.get("error") or len(effects.get("gears", [])) != len(gears):
+                    raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, effects.get("error", "Gear effects could not be verified."))
+                checks.append("Gear tooth count, radial surfaces, width and material effect verified; existing bores checked against the changed stock.")
+                if warnings is not None:
+                    warnings.extend(effects.get("warnings", []))
+        if verification_scope is not None and verification_scope[0] == lid and (lid not in before or before[lid].features != ledger.features):
+            from cadenza_contracts.revolve import revolve_reason
+            revolves = [f.id for f in live if f.kind == "revolve" and revolve_reason(f.model_dump(mode="json")) is None]
+            if revolves:
+                effects = await inspect(ledger, {"query_type": "revolve_effects", "feature_ids": revolves}, after)
+                if effects.get("error") or len(effects.get("revolves", [])) != len(revolves):
+                    raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, effects.get("error", "Revolve effects could not be verified."))
+                checks.append("Supported revolve profiles and angles match measured tool volumes; every revolve has a material effect and the source is connected.")
         pattern_sources = []
         if lid not in before or before[lid].features != ledger.features:
             pattern_sources.append(ledger)
@@ -163,7 +182,7 @@ async def verify_edit(before: dict[str, Ledger], after: dict[str, Ledger], promp
                 raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, "The selected feature is not available for this dimension check.")
             selected = scoped[0]
             edit_parameter = "amount" if selected.kind == "extrude" and parameter == "height" else parameter
-            if edit_parameter not in PARAMETERS.get(selected.kind, set()):
+            if edit_parameter not in PARAMETERS.get(selected.kind, set()) and not (selected.kind == "gear" and edit_parameter == "height"):
                 raise CadenzaError(ErrorCode.GEOMETRY_INVALID_PARAMETER, "This dimension does not belong to the selected feature.")
             feature_id, actual_value = selected.id, getattr(selected.parameters, edit_parameter)
         elif len(boxes) == 1:
@@ -222,7 +241,8 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     changes = changes_between(base, ledgers)
     if not changes:
         raise CadenzaError(ErrorCode.PATCH_INVALID, "The candidate contains no changes.")
-    checks = await verify_edit(base, ledgers, prompt, verification_scope=verification_scope, prompt_scope=prompt_scope)
+    warnings = list(outcome.warnings or [])
+    checks = await verify_edit(base, ledgers, prompt, verification_scope=verification_scope, prompt_scope=prompt_scope, warnings=warnings)
     checks.extend(extra_checks or [])
     from cadenza_contracts.messages import AttachmentContact
     from cadenza_backend.assembly_commands import source_uses
@@ -304,7 +324,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     preview_id = uuid4().hex
     url = f"/api/sessions/{session.id}/previews/{preview_id}"
     message = PreviewReady(message_id=message_id, preview_id=preview_id, base_revision=session.revision,
-        summary=summary, prompt=prompt, changes=changes, checks=checks, attachment_contacts=attachment_contacts, independence=independence, assumptions=assumptions or [],
+        summary=summary, prompt=prompt, changes=changes, checks=checks, warnings=list(dict.fromkeys(warnings)), attachment_contacts=attachment_contacts, independence=independence, assumptions=assumptions or [],
         glb_url=f"{url}/model.glb" if outcome.glb else None,
         step_url=f"{url}/model.step" if outcome.step else None, empty=outcome.empty,
         draft_id=draft_id, draft_revision=draft_revision, display_ledger_id=display_ledger_id,
@@ -317,7 +337,7 @@ async def publish_preview(session, ledgers, outcome, message_id, emit, *, summar
     event("preview.published", preview_id=preview_id, originating_message_id=message_id,
         display_ledger_id=display_ledger_id, context_component_path=context_path,
         candidate=snapshot(ledgers), changes=[c.model_dump(mode="json") for c in changes],
-        checks=checks, attachment_contacts=[c.model_dump(mode="json") for c in attachment_contacts], independence=independence, volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
+        checks=checks, warnings=message.warnings, attachment_contacts=[c.model_dump(mode="json") for c in attachment_contacts], independence=independence, volume_mm3=outcome.volume_mm3, bbox=outcome.bbox)
     await emit(message)
 
 

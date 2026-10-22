@@ -58,3 +58,18 @@ def test_source_context_contract_bounds():
     response = dict(message_id="view", session_id="ses_test", revision=0, ledger_id="prj_plate", view_id="view")
     for matrix in ([1] * 15, [float("nan")] * 16, [float("inf")] * 16, [True] * 16):
         with pytest.raises(ValidationError): PartViewReady.model_validate({**response, "source_to_project": matrix})
+
+
+def test_creation_and_discovery_versions_are_strict_and_legacy_shape_is_preserved():
+    from cadenza_contracts.part_commands import PartCapabilitiesRequest, PartCapabilitiesResponse, PartCapabilitiesV2Response
+    from cadenza_contracts.messages import parse_server_message
+    for value in (True, 2.0, "2", 0, 3):
+        with pytest.raises(ValidationError): PartCapabilitiesRequest.model_validate(dict(message_id="cap", version=value))
+        with pytest.raises(ValidationError): PartCreate.model_validate(creation(creation_version=value))
+    legacy = PartCapabilitiesResponse(message_id="cap", session_id="test").model_dump(mode="json")
+    assert legacy["starter_kinds"] == ["box", "cylinder"] and legacy["version"] == 1
+    current = PartCapabilitiesV2Response(message_id="cap", session_id="test").model_dump(mode="json")
+    assert current["starter_kinds"] == ["box", "cylinder", "revolve", "gear"]
+    parsed_current, parsed_legacy = parse_server_message(current), parse_server_message(legacy)
+    assert isinstance(parsed_current, PartCapabilitiesV2Response) and parsed_current.version == 2
+    assert isinstance(parsed_legacy, PartCapabilitiesResponse) and parsed_legacy.version == 1

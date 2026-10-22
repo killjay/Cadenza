@@ -3,6 +3,8 @@
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
+from cadenza_contracts.revolve import RevolveSettings
+from cadenza_contracts.gear_authoring import GearSettings
 
 StrictNum = Union[StrictFloat, StrictInt]
 PositiveNum = Annotated[StrictNum, Field(gt=0, allow_inf_nan=False)]
@@ -69,9 +71,39 @@ class AddFeatureBase(_Op):
     placement: CommandPlacement
 
 
+class AddRevolve(RevolveSettings):
+    op: Literal["add_revolve"] = "add_revolve"
+    name: str = Field(min_length=1, max_length=100)
+    operation: Literal["add", "subtract"]
+    placement: CommandPlacement
+
+
+class UpdateRevolve(RevolveSettings):
+    op: Literal["update_revolve"] = "update_revolve"
+    feature_id: str = Field(pattern=r"^feat_[a-z0-9_]{1,60}$")
+
+
 class AddBox(AddFeatureBase):
     kind: Literal["box"] = "box"
     parameters: BoxCreationParams
+
+
+class AddGear(GearSettings):
+    op: Literal["add_gear"] = "add_gear"
+    name: str = Field(min_length=1, max_length=100)
+    operation: Literal["add"] = "add"
+    placement: CommandPlacement
+
+    @model_validator(mode="after")
+    def source_axis(self):
+        if self.placement.rotation_deg[:2] != [0, 0]:
+            raise ValueError("Gear creation supports rotation about source Z only")
+        return self
+
+
+class UpdateGear(GearSettings):
+    op: Literal["update_gear"] = "update_gear"
+    feature_id: str = Field(pattern=r"^feat_[a-z0-9_]{1,60}$")
 
 
 class AddCylinder(AddFeatureBase):
@@ -146,7 +178,7 @@ class UpdateCircularPattern(CircularSettings):
 
 CommandOperation = Annotated[
     Union[SetDimension, SetOrigin, AddFeature, SetSuppressed, RemoveFeature,
-          AddLinearPattern, AddCircularPattern, UpdateLinearPattern, UpdateCircularPattern],
+          AddLinearPattern, AddCircularPattern, UpdateLinearPattern, UpdateCircularPattern, AddRevolve, UpdateRevolve, AddGear, UpdateGear],
     Field(discriminator="op"),
 ]
 

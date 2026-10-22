@@ -36,10 +36,11 @@ from cadenza_backend.assembly_prompts import discovery as assembly_prompt_capabi
 from cadenza_backend.part_commands import create_part, prompt_part, rename_part
 from cadenza_backend.part_views import router as part_view_router, view_part
 from cadenza_contracts.messages import PartPrompt
-from cadenza_contracts.part_commands import PartCreate, PartRename, PartViewRequest, PartCapabilitiesRequest, PartCapabilitiesResponse
+from cadenza_contracts.part_commands import PartCreate, PartRename, PartViewRequest, PartCapabilitiesRequest, PartCapabilitiesResponse, PartCapabilitiesV2Response
 from cadenza_contracts.messages import DesignPrompt, PromptCapabilitiesRequest, PromptCapabilitiesResponse
-from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse, feature_capabilities
+from cadenza_contracts.feature_capabilities import CapabilitiesRequest, CapabilitiesResponse, feature_capabilities, RevolveCapability
 from cadenza_contracts.feature_capabilities import PatternCapabilitiesRequest, PatternCapabilitiesResponse
+from cadenza_contracts.gear_authoring import GearCapabilitiesRequest, GearCapabilitiesResponse
 
 from cadenza_backend import diagnostics
 from cadenza_backend.diagnostics_api import router as diagnostics_router
@@ -382,10 +383,13 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 
                 elif isinstance(frame, CapabilitiesRequest):
                     await emit(CapabilitiesResponse(message_id=frame.message_id, session_id=session.id,
-                        features=feature_capabilities()))
+                        version=frame.version, revolve=RevolveCapability() if frame.version == 2 else None, features=feature_capabilities()))
 
                 elif isinstance(frame, PromptCapabilitiesRequest):
                     await emit(PromptCapabilitiesResponse(message_id=frame.message_id, session_id=session.id))
+
+                elif isinstance(frame, GearCapabilitiesRequest):
+                    await emit(GearCapabilitiesResponse(message_id=frame.message_id, session_id=session.id))
 
                 elif isinstance(frame, PatternCapabilitiesRequest):
                     await emit(PatternCapabilitiesResponse(message_id=frame.message_id, session_id=session.id))
@@ -411,7 +415,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                             await emit(ErrorMessage(message_id=frame.message_id, code=exc.code, message=exc.message, interference=exc.interference))
 
                 elif isinstance(frame, PartCapabilitiesRequest):
-                    await emit(PartCapabilitiesResponse(message_id=frame.message_id, session_id=session.id))
+                    await emit((PartCapabilitiesV2Response if frame.version == 2 else PartCapabilitiesResponse)(message_id=frame.message_id, session_id=session.id))
 
                 elif isinstance(frame, (PartCreate, PartRename, PartPrompt, PartViewRequest)):
                     async with session.lock:

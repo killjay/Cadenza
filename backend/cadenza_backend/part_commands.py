@@ -85,7 +85,7 @@ async def prompt_part(session, request: PartPrompt, emit, *, client=None):
         ledger_id=source.project_id, scope="source", prompt=request.prompt, images=request.images)
     await emit(AgentStatus(message_id=request.message_id, phase=AgentPhase.THINKING, detail="Interpreting a new independent part."))
     try:
-        result = await interpret(interpretation, source, client, new_part=True)
+        result = await interpret(interpretation, source, client, new_part=True, creation_version=request.creation_version)
     except AINotConfigured as exc:
         raise CadenzaError(ErrorCode.AGENT_UNAVAILABLE, "No AI provider is configured.") from exc
     except AIProviderError as exc:
@@ -105,10 +105,10 @@ async def prompt_part(session, request: PartPrompt, emit, *, client=None):
     else:
         try:
             creation = PartCreate.model_validate(dict(message_id=request.message_id,
-                base_revision=request.base_revision, name=request.name,
+                base_revision=request.base_revision, name=request.name, creation_version=request.creation_version,
                 operations=[op.model_dump(mode="json") for op in result.operations]))
         except ValidationError as exc:
             raise CadenzaError(ErrorCode.AGENT_INVALID_OUTPUT,
-                "New parts require primitive creation operations only. Add dependent features after Apply.") from exc
+                "New parts require creation operations supported by this request version. Add dependent features after Apply.") from exc
         await create_part(session, creation, emit, prompt=request.prompt, assumptions=result.assumptions)
     await emit(AgentStatus(message_id=request.message_id, phase=AgentPhase.DONE, detail="Review the response before continuing."))

@@ -1,5 +1,7 @@
 import { NumericInput } from "./NumericInput";
 import { useState } from "react";
+import { GearControls } from "./GearControls";
+import { RevolveControls } from "./RevolveControls";
 import { useStore } from "../lib/store";
 import { creationCommand, profileTargets, sourceNotice } from "../lib/featureCommands";
 import type { Ledger } from "../lib/types";
@@ -14,7 +16,8 @@ export function FeatureCreate({ ledger }: { ledger: Ledger }) {
   const disabled = state.busy || !!state.draft || state.draftStarting || !!state.preview
     || state.connection !== "open" || state.model?.source === "local";
   const profiles = profileTargets(ledger);
-  return <details className="my-2 text-11">
+  return <><GearControls key={`gear:${state.sessionId}:${state.sessionRevision}:${ledger.project_id}`} ledger={ledger} /><RevolveControls key={`revolve:${state.sessionId}:${state.sessionRevision}:${ledger.project_id}`} ledger={ledger} />
+    <details className="my-2 text-11">
     <summary className="cursor-pointer text-accent">Add feature</summary>
     {!choices.length ? <p className="text-ink-4">Feature creation is unavailable on this connection.</p> : <>
       <p className="my-1 text-10 text-ink-4">{sourceNotice}</p>
@@ -63,5 +66,5 @@ export function FeatureCreate({ ledger }: { ledger: Ledger }) {
         {error && <p role="alert" className="text-red">{error}</p>}
       </form>}
     </>}
-  </details>;
+  </details></>;
 }
